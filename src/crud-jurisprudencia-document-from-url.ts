@@ -178,7 +178,7 @@ async function addSumarioAndTexto(obj: PartialJurisprudenciaDocument, table: Rec
     }
 }
 
-function calculateUUID(obj: PartialJurisprudenciaDocument | HASHField, keys: (JurisprudenciaDocumentKey | keyof HASHField)[]=[]){
+function calculateUUID(obj: any, keys?: string[]){
     let str = JSON.stringify(obj, keys);
     let hash = createHash("sha1");
     hash.write(str);
@@ -248,14 +248,13 @@ export async function createJurisprudenciaDocumentFromURL(url: string){
     addSumarioAndTexto(obj, table)
 
     obj["HASH"] = {
-        Original: calculateUUID(obj, ["Original"]),
+        Original: calculateUUID(obj.Original),
         Processo: calculateUUID(obj, ["Número de Processo"]),
         Sumário: calculateUUID(obj, ["Sumário"]),
         Texto: calculateUUID(obj, ["Texto"]),
     }
 
     obj["UUID"] = calculateUUID(obj["HASH"], ["Sumário", "Texto", "Processo"])
-
     await client.index<PartialJurisprudenciaDocument>({
         index: JurisprudenciaVersion,
         document: obj
