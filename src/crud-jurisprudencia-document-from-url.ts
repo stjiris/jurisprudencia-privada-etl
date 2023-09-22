@@ -245,7 +245,7 @@ export async function createJurisprudenciaDocumentFromURL(url: string){
     addGenericField(obj, "Referência de publicação", table, "Referência de publicação")
     addGenericField(obj, "Indicações Eventuais", table, "Indicações Eventuais")
 
-    addSumarioAndTexto(obj, table)
+    await addSumarioAndTexto(obj, table)
 
     obj["HASH"] = {
         Original: calculateUUID(obj.Original),
