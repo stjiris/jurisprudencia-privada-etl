@@ -250,8 +250,8 @@ export async function createJurisprudenciaDocumentFromURL(url: string){
     obj["HASH"] = {
         Original: calculateUUID(obj.Original),
         Processo: calculateUUID(obj["Número de Processo"]),
-        Sumário: calculateUUID(obj.Sumário),
-        Texto: calculateUUID(obj.Texto),
+        Sumário: calculateUUID(obj.Sumário || ""),
+        Texto: calculateUUID(obj.Texto || "")
     }
 
     obj["UUID"] = calculateUUID(obj["HASH"], ["Sumário", "Texto", "Processo"])
