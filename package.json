@@ -12,7 +12,7 @@
   "license": "ISC",
   "dependencies": {
     "@elastic/elasticsearch": "^8.9.0",
-    "@stjiris/jurisprudencia-document": "^11.0.1",
+    "@stjiris/jurisprudencia-document": "^11.1.1",
     "express": "^4.18.2",
     "jsdom": "^22.1.0"
   },

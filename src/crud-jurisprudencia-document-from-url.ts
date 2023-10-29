@@ -1,4 +1,4 @@
-import { HASHField, JurisprudenciaDocument, JurisprudenciaDocumentGenericKeys, JurisprudenciaDocumentKey, JurisprudenciaVersion, PartialJurisprudenciaDocument } from "@stjiris/jurisprudencia-document";
+import { HASHField, JurisprudenciaDocument, JurisprudenciaDocumentDateKey, JurisprudenciaDocumentGenericKey, JurisprudenciaDocumentKey, JurisprudenciaVersion, PartialJurisprudenciaDocument } from "@stjiris/jurisprudencia-document";
 import {JSDOM} from "jsdom";
 import { client } from "./client";
 import { createHash } from "crypto";
@@ -23,13 +23,13 @@ export async function jurisprudenciaOriginalFromURL(url: string){
     return null;
 }
 
-function addGenericField(obj: PartialJurisprudenciaDocument, key: JurisprudenciaDocumentGenericKeys, table: Record<string, HTMLTableCellElement | undefined>, tableKey: string){
+function addGenericField(obj: PartialJurisprudenciaDocument, key: JurisprudenciaDocumentGenericKey, table: Record<string, HTMLTableCellElement | undefined>, tableKey: string){
     let val = table[tableKey]?.textContent?.trim().split("\n");
     if( val ){
         obj[key] = {
-            Index: val,
+            Index: [],
             Original: val,
-            Show: val
+            Show: []
         }
     }
 }
@@ -39,12 +39,12 @@ function addGenericField(obj: PartialJurisprudenciaDocument, key: Jurisprudencia
 function addDescritores(obj: PartialJurisprudenciaDocument, table: Record<string, HTMLTableCellElement | undefined>){
     if( table.Descritores ){
         // TODO: handle , and ; in descritores (e.g. "Ação Civil; Ação Civil e Administrativa") however dont split some cases (e.g. "Art 321º, do código civil")
-        let desc = table.Descritores.textContent?.trim().split(/\n|;/).map( desc => desc.trim().replace(/\.$/g,'').replace(/^(:|-|,|"|“|”|«|»|‘|’)/,'').trim() ).filter( desc => desc.length > 0 ).map(desc => DescritorOficial[desc])
+        let desc = table.Descritores.textContent?.trim().split(/\n|;/).map( desc => desc.trim().replace(/\.$/g,'').replace(/^(:|-|,|"|“|”|«|»|‘|’)/,'').trim() ).filter( desc => desc.length > 0 )
         if(desc && desc.length > 0 ){
             obj.Descritores = {
-                Index: desc,
+                Index: desc.map(desc => DescritorOficial[desc]),
                 Original: desc,
-                Show: desc
+                Show: desc.map(desc => DescritorOficial[desc])
             }
         }
     }
@@ -55,9 +55,9 @@ function addMeioProcessual(obj: PartialJurisprudenciaDocument, table: Record<str
         let meios = table["Meio Processual"].textContent?.trim().split(/(\/|-|\n)/).map(meio => meio.trim().replace(/\.$/,''));
         if( meios && meios.length > 0){
             obj["Meio Processual"] = {
-                Index: meios,
+                Index: [],
                 Original: meios,
-                Show: meios
+                Show: []
             }
         }
     }
@@ -77,9 +77,9 @@ function addVotacao(obj: PartialJurisprudenciaDocument, table: Record<string, HT
             }
             else {
                 obj["Votação"] = {
-                    Index: [text],
+                    Index: [],
                     Original: [text],
-                    Show: [text]
+                    Show: []
                 }
             }
         }
@@ -191,11 +191,17 @@ export async function createJurisprudenciaDocumentFromURL(url: string){
     
     let Original: JurisprudenciaDocument["Original"] = {};
     let CONTENT: JurisprudenciaDocument["CONTENT"] = [];
-    let Data: JurisprudenciaDocument["Data"] = "01/01/1900";
     let Tipo: JurisprudenciaDocument["Tipo"] = "Acordão";
     let numProc: JurisprudenciaDocument["Número de Processo"] = table.Processo?.textContent?.trim().replace(/\s-\s.*$/, "").replace(/ver\s.*/, "");
-
-
+    let DataAcordao: JurisprudenciaDocument["Data"] | null = null;
+    let DataToUse: JurisprudenciaDocument["Data"] | null = null;
+    /*
+    Tipo logic from https://github.com/stjiris/version-converter/blob/3a749c94c639081a797b83aa33a520e45e8e909e/src/converters/11withTipo.ts#L56-L59
+    def decSuma = ctx['_source']['Original'].containsKey("Data da Decisão Sumária") || ctx['_source']['Original'].containsKey("Data de decisão sumária");
+    def decSing = ctx['_source']['Original'].containsKey("Data da Decisão Singular");
+    def reclama = ctx['_source']['Original'].containsKey("Data da Reclamação");
+    ctx['_source']['Tipo'] = decSuma ? "Decisão Sumária" : decSing ? "Decisão Singular" : reclama ? "Reclamação" : "Acórdão";
+    */
     for( let key in table ){
         let text = table[key]?.textContent?.trim();
         if( !text ) continue;
@@ -203,10 +209,16 @@ export async function createJurisprudenciaDocumentFromURL(url: string){
             // Handle MM/DD/YYYY format to DD/MM/YYYY
             text = text.replace(/(\d{2})\/(\d{2})\/(\d{4})/, "$2/$1/$3");
             Original[key] = text;
-            let otherTipo = key.match(/Data d. (.*)/);
+            let decSuma = key.match(/Data da Decisão Sumária/) || key.match(/Data de decisão sumária/);
+            let decSing = key.match(/Data da Decisão Singular/);
+            let reclama = key.match(/Data da Reclamação/);
+            let otherTipo = decSuma || decSing || reclama;
             if( otherTipo && Tipo === "Acordão" ){
-                Tipo = otherTipo[1].trim()
-                Data = text;
+                Tipo = decSuma ? "Decisão Sumária" : decSing ? "Decisão Singular" : reclama ? "Reclamação" : "Acórdão";
+                DataToUse = text;
+            }
+            if( !otherTipo ){
+                DataAcordao = text;
             }
         }
         else{
@@ -214,6 +226,7 @@ export async function createJurisprudenciaDocumentFromURL(url: string){
         }
         CONTENT.push(text)
     }
+    let Data: JurisprudenciaDocument["Data"] = DataToUse || DataAcordao || "01/01/1900";
 
     let obj: PartialJurisprudenciaDocument = {
         "Original": Original,
@@ -222,7 +235,8 @@ export async function createJurisprudenciaDocumentFromURL(url: string){
         "Número de Processo": numProc,
         "Fonte": "STJ (DGSI)",
         "URL": url,
-        "Jurisprudência": {Index: ["Simples"], Original: ["Simples"], Show: ["Simples"]}
+        "Jurisprudência": {Index: ["Simples"], Original: ["Simples"], Show: ["Simples"]},
+        "STATE": "importação"
     }
     addGenericField(obj, "Relator Nome Profissional", table, "Relator");
     addGenericField(obj, "Relator Nome Completo", table, "Relator");
