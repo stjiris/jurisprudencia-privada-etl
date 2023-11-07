@@ -65,6 +65,7 @@ async function main(){
         let id = await indexedUrlId(l);
         i++;
         if( id && !FLAG_FULL_UPDATE ){
+            info.skiped++;
             continue;
         };
         let r: WriteResponseBase | undefined = undefined;

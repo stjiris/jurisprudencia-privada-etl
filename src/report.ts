@@ -1,6 +1,7 @@
 import { MappingProperty } from "@elastic/elasticsearch/lib/api/types";
 import { client } from "./client";
 import { JurisprudenciaDocumentDateKey, JurisprudenciaDocumentExactKey } from "@stjiris/jurisprudencia-document";
+import { notify } from "./notify";
 
 export type Report = {
     target: string,
@@ -42,6 +43,7 @@ export async function report(report: Report){
         document: report
     })
     console.log(report);
+    notify(report);
 }
 
 export type ConflictsType = Partial<Record<JurisprudenciaDocumentExactKey|JurisprudenciaDocumentDateKey, Record<"Current"|"New", string>>>
