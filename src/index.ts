@@ -1,8 +1,9 @@
 import { allLinks } from "./dgsi-links";
 import { JurisprudenciaVersion } from "@stjiris/jurisprudencia-document";
-import { createJurisprudenciaDocumentFromURL, updateJurisprudenciaDocumentFromURL } from "./crud-jurisprudencia-document-from-url";
+import { indexJurisprudenciaDocumentFromURL, updateJurisprudenciaDocumentFromURL } from "./crud-jurisprudencia-document-from-url";
 import { client } from "./client";
 import { Report, report } from "./report";
+import { WriteResponseBase } from "@elastic/elasticsearch/lib/api/types";
 
 const FLAG_FULL_UPDATE = process.argv.some(arg => arg === "-f" || arg === "--full");
 
@@ -35,6 +36,7 @@ function indexedUrlId(url: string){
     }).then( r => r.hits.hits[0]? r.hits.hits[0]._id : null )
 }
 
+
 async function main(){
     if( FLAG_HELP ) return showHelp(0);
     let info: Report = {
@@ -42,29 +44,51 @@ async function main(){
         dateEnd: new Date(),
         dateStart: new Date(),
         deleted: 0,
-        logs: [],
+        skiped: 0,
+        soft: !FLAG_FULL_UPDATE,
         target: JurisprudenciaVersion,
         updated: 0
     }
 
+    process.once("SIGINT", () => {
+        info.dateEnd = new Date();
+        console.log("Terminado a pedido do utilizador");
+        report(info).then(() => process.exit(0));
+    })
+
     let existsR = await client.indices.exists({index: JurisprudenciaVersion}, {ignore: [404]});
     if( !existsR ){
-        info.logs.push(`${JurisprudenciaVersion} not found`)
         return showHelp(1, `${JurisprudenciaVersion} not found`);
     }
     let i = 0;
     for await( let l of allLinks() ){
         let id = await indexedUrlId(l);
+        i++;
         if( id && !FLAG_FULL_UPDATE ){
             continue;
         };
+        let r: WriteResponseBase | undefined = undefined;
         if( id ){
-            await updateJurisprudenciaDocumentFromURL(id, l);
-            info.updated++;
+            r = await updateJurisprudenciaDocumentFromURL(id, l);
         }
         else{
-            await createJurisprudenciaDocumentFromURL(l);
-            info.created++;
+            r = await indexJurisprudenciaDocumentFromURL(l);
+        }
+        switch(r?.result){
+            case "created":
+                info.created++;
+                break;
+            case "deleted":
+                info.deleted++;
+                break;
+            case "updated":
+                info.updated++;
+                break;
+            case "noop":
+            case "not_found":
+            default:
+                info.skiped++;
+                break;
         }
     }
 

@@ -1,12 +1,15 @@
-import { HASHField, JurisprudenciaDocument, JurisprudenciaDocumentDateKey, JurisprudenciaDocumentGenericKey, JurisprudenciaDocumentKey, JurisprudenciaVersion, PartialJurisprudenciaDocument } from "@stjiris/jurisprudencia-document";
+import { calculateUUID, HASHField, JurisprudenciaDocument, JurisprudenciaDocumentDateKey, JurisprudenciaDocumentGenericKey, JurisprudenciaDocumentKey, JurisprudenciaDocumentKeys, JurisprudenciaVersion, PartialJurisprudenciaDocument, isJurisprudenciaDocumentContentKey, isJurisprudenciaDocumentDateKey, isJurisprudenciaDocumentExactKey, isJurisprudenciaDocumentGenericKey, isJurisprudenciaDocumentHashKey, isJurisprudenciaDocumentObjectKey, isJurisprudenciaDocumentStateKey, isJurisprudenciaDocumentTextKey, JurisprudenciaDocumentProperties, JurisprudenciaDocumentExactKey } from "@stjiris/jurisprudencia-document";
 import {JSDOM} from "jsdom";
 import { client } from "./client";
 import { createHash } from "crypto";
 import { DescritorOficial } from "./descritor-oficial";
+import { IndexResponse, UpdateResponse, WriteResponseBase } from "@elastic/elasticsearch/lib/api/types";
+import { conflicts } from "./report";
+import { JSDOMfromURL } from "./jsdom-util";
 
 export async function jurisprudenciaOriginalFromURL(url: string){
     if( url.match(/http:\/\/www\.dgsi\.pt\/([^/]+)\.nsf\/([^/]+)\/([^/]*)\?OpenDocument/) ){
-        let page = await JSDOM.fromURL(url);
+        let page = await JSDOMfromURL(url);
         let tables = Array.from(page.window.document.querySelectorAll("table")).filter( o => !o.parentElement?.closest("table") );
         return tables.flatMap( table => Array.from(table.querySelectorAll("tr")).filter( row => row.closest("table") == table ) )
             .filter( tr => tr.cells.length > 1 )
@@ -178,16 +181,9 @@ async function addSumarioAndTexto(obj: PartialJurisprudenciaDocument, table: Rec
     }
 }
 
-function calculateUUID(obj: any, keys?: string[]){
-    let str = JSON.stringify(obj, keys);
-    let hash = createHash("sha1");
-    hash.write(str);
-    return hash.digest().toString("base64url");
-}
-
 export async function createJurisprudenciaDocumentFromURL(url: string){
     let table = await jurisprudenciaOriginalFromURL(url);
-    if( !table ) return;
+    if( !table ) return ;
     
     let Original: JurisprudenciaDocument["Original"] = {};
     let CONTENT: JurisprudenciaDocument["CONTENT"] = [];
@@ -263,18 +259,93 @@ export async function createJurisprudenciaDocumentFromURL(url: string){
 
     obj["HASH"] = {
         Original: calculateUUID(obj.Original),
-        Processo: calculateUUID(obj["Número de Processo"]),
+        Processo: calculateUUID(obj["Número de Processo"] || ""),
         Sumário: calculateUUID(obj.Sumário || ""),
         Texto: calculateUUID(obj.Texto || "")
     }
 
     obj["UUID"] = calculateUUID(obj["HASH"], ["Sumário", "Texto", "Processo"])
-    await client.index<PartialJurisprudenciaDocument>({
-        index: JurisprudenciaVersion,
-        document: obj
-    })
+    return obj;
 }
 
-export async function updateJurisprudenciaDocumentFromURL(id: string, url: string){
+export async function indexJurisprudenciaDocumentFromURL(url: string): Promise<IndexResponse|undefined>{
+    let obj = await createJurisprudenciaDocumentFromURL(url);
+    if( obj ){
+        return client.index({
+            index: JurisprudenciaVersion,
+            body: obj
+        })
+    }
+}
+
+export async function updateJurisprudenciaDocumentFromURL(id: string, url: string): Promise<UpdateResponse|undefined>{
+    let newObject = await createJurisprudenciaDocumentFromURL(url);
+    if( !newObject ) return;
+    let currentObject = (await client.get<JurisprudenciaDocument>({index: JurisprudenciaVersion, id: id, _source: true}))._source!;
+    let updateObject: PartialJurisprudenciaDocument = {};
+    const needsUpdate = newObject.HASH?.Original !== currentObject.HASH?.Original ||
+                        newObject.HASH?.Processo !== currentObject.HASH?.Processo ||
+                        newObject.HASH?.Sumário !== currentObject.HASH?.Sumário ||
+                        newObject.HASH?.Texto !== currentObject.HASH?.Texto ||
+                        newObject.UUID !== currentObject.UUID;
     
+    if( !needsUpdate ){ return; }
+    // Concat only new values to CONTENT without duplicates
+    let CONTENT = newObject.CONTENT?.filter( o => !currentObject.CONTENT?.includes(o) ) || [];
+    updateObject.CONTENT = currentObject.CONTENT?.concat(CONTENT);
+
+    const conflictsObj: Partial<Record<JurisprudenciaDocumentDateKey|JurisprudenciaDocumentExactKey,{Current: string, New: string}>> = {}
+
+    for( let key of JurisprudenciaDocumentKeys ){
+        if( isJurisprudenciaDocumentContentKey(key) ) continue; // DONE ABOVE
+        if( isJurisprudenciaDocumentDateKey(key) && newObject[key] && newObject[key] !== currentObject[key] ){
+            if( !currentObject[key] ){
+                updateObject[key] = newObject[key];
+            }
+            else{
+                updateObject[key] = currentObject[key];
+                conflictsObj[key] = {Current: currentObject[key] || "", New: newObject[key] || ""};
+            }
+        }
+        if( isJurisprudenciaDocumentExactKey(key) && newObject[key] && newObject[key] !== currentObject[key] ){
+            if( !currentObject[key] || key === "UUID" ){
+                updateObject[key] = newObject[key];
+            }
+            else{
+                updateObject[key] = currentObject[key];
+                conflictsObj[key] = {Current: currentObject[key] || "", New: newObject[key] || ""};
+            }
+        }
+        if( isJurisprudenciaDocumentGenericKey(key) ){
+            updateObject[key] = {...(currentObject[key] || {Index: [], Show: []}), Original: newObject[key]?.Original||[]};
+        }
+        if( isJurisprudenciaDocumentHashKey(key) ) continue; // DONE BELOW
+        if( isJurisprudenciaDocumentObjectKey(key) ){
+            updateObject[key] = newObject[key];
+        }
+        if( isJurisprudenciaDocumentTextKey(key) ){
+            updateObject[key] = newObject[key];
+        };
+        if( isJurisprudenciaDocumentStateKey(key) ) continue;
+    }
+
+    updateObject["HASH"] = {
+        Original: calculateUUID(updateObject.Original),
+        Processo: calculateUUID(updateObject["Número de Processo"] || ""),
+        Sumário: calculateUUID(updateObject.Sumário || ""),
+        Texto: calculateUUID(updateObject.Texto || "")
+    }
+
+    updateObject["UUID"] = calculateUUID(updateObject["HASH"], ["Sumário", "Texto", "Processo"])
+    updateObject["STATE"] = currentObject.STATE;
+
+    await conflicts(id, conflictsObj)
+
+    return await client.update({
+        index: JurisprudenciaVersion,
+        id: id,
+        body: {
+            doc: updateObject
+        }
+    })
 }
