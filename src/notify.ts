@@ -1,14 +1,27 @@
 import { createTransport } from "nodemailer";
 import { Report } from "./report";
 
+export function getMailConfig(){
+    const envOrFail = (name: string) => {
+        const value = process.env[name];
+        if(!value) throw new Error(`Missing environment variable ${name}`);
+        return value;
+    }
+    return {
+        host: envOrFail("MAIL_HOST"),
+        user: envOrFail("MAIL_USER"),
+        pass: envOrFail("MAIL_PASS"),
+        from: envOrFail("MAIL_FROM"),
+        to: envOrFail("MAIL_TO").split(",")
+    }
+}
 
 export function notify(report: Report){
-    let config: Record<string, string>;
+    let config: ReturnType<typeof getMailConfig>;
     try{
-        config = require("../.mail.conf.json");
+        config = getMailConfig();
     }
     catch(e){
-        console.error("Failed to load mail config (.mail.conf.json) on root directory");
         console.error(e);
         return;
     }
