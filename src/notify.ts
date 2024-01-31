@@ -1,10 +1,10 @@
 import { createTransport } from "nodemailer";
 import { Report } from "./report";
 
-export function getMailConfig(){
+export function getMailConfig() {
     const envOrFail = (name: string) => {
         const value = process.env[name];
-        if(!value) throw new Error(`Missing environment variable ${name}`);
+        if (!value) throw new Error(`Missing environment variable ${name}`);
         return value;
     }
     return {
@@ -16,12 +16,12 @@ export function getMailConfig(){
     }
 }
 
-export function notify(report: Report){
+export function notify(report: Report) {
     let config: ReturnType<typeof getMailConfig>;
-    try{
+    try {
         config = getMailConfig();
     }
-    catch(e){
+    catch (e) {
         console.error(e);
         return;
     }

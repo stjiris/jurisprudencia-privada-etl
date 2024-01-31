@@ -9,8 +9,8 @@ const FLAG_FULL_UPDATE = process.argv.some(arg => arg === "-f" || arg === "--ful
 
 const FLAG_HELP = process.argv.some(arg => arg === "-h" || arg === "--help");
 
-function showHelp( code: number, error?: string ){
-    if(error){
+function showHelp(code: number, error?: string) {
+    if (error) {
         process.stderr.write(`Error: ${error}\n\n`);
     }
     process.stdout.write(`Usage: ${process.argv0} ${__filename} [OPTIONS]\n`)
@@ -23,7 +23,7 @@ function showHelp( code: number, error?: string ){
     process.exit(code);
 }
 
-function indexedUrlId(url: string){
+function indexedUrlId(url: string) {
     return client.search({
         index: JurisprudenciaVersion,
         query: {
@@ -32,13 +32,13 @@ function indexedUrlId(url: string){
             }
         },
         _source: false,
-        size: 1  
-    }).then( r => r.hits.hits[0]? r.hits.hits[0]._id : null )
+        size: 1
+    }).then(r => r.hits.hits[0] ? r.hits.hits[0]._id : null)
 }
 
 
-async function main(){
-    if( FLAG_HELP ) return showHelp(0);
+async function main() {
+    if (FLAG_HELP) return showHelp(0);
     let info: Report = {
         created: 0,
         dateEnd: new Date(),
@@ -56,26 +56,26 @@ async function main(){
         report(info).then(() => process.exit(0));
     })
 
-    let existsR = await client.indices.exists({index: JurisprudenciaVersion}, {ignore: [404]});
-    if( !existsR ){
+    let existsR = await client.indices.exists({ index: JurisprudenciaVersion }, { ignore: [404] });
+    if (!existsR) {
         return showHelp(1, `${JurisprudenciaVersion} not found`);
     }
     let i = 0;
-    for await( let l of allLinks() ){
+    for await (let l of allLinks()) {
         let id = await indexedUrlId(l);
         i++;
-        if( id && !FLAG_FULL_UPDATE ){
+        if (id && !FLAG_FULL_UPDATE) {
             info.skiped++;
             continue;
         };
         let r: WriteResponseBase | undefined = undefined;
-        if( id ){
+        if (id) {
             r = await updateJurisprudenciaDocumentFromURL(id, l);
         }
-        else{
+        else {
             r = await indexJurisprudenciaDocumentFromURL(l);
         }
-        switch(r?.result){
+        switch (r?.result) {
             case "created":
                 info.created++;
                 break;
