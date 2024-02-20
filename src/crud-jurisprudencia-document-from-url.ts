@@ -31,9 +31,9 @@ function addGenericField(obj: PartialJurisprudenciaDocument, key: Jurisprudencia
     let val = table[tableKey]?.textContent?.trim().split("\n");
     if (val) {
         obj[key] = {
-            Index: [],
+            Index: val,
             Original: val,
-            Show: []
+            Show: val,
         }
     }
 }
@@ -59,9 +59,9 @@ function addMeioProcessual(obj: PartialJurisprudenciaDocument, table: Record<str
         let meios = table["Meio Processual"].textContent?.trim().split(/(\/|-|\n)/).map(meio => meio.trim().replace(/\.$/, ''));
         if (meios && meios.length > 0) {
             obj["Meio Processual"] = {
-                Index: [],
+                Index: meios,
                 Original: meios,
-                Show: []
+                Show: meios
             }
         }
     }
@@ -81,9 +81,9 @@ function addVotacao(obj: PartialJurisprudenciaDocument, table: Record<string, HT
             }
             else {
                 obj["Votação"] = {
-                    Index: [],
+                    Index: [text],
                     Original: [text],
-                    Show: []
+                    Show: [text]
                 }
             }
         }
