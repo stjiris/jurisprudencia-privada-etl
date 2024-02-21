@@ -233,7 +233,7 @@ export async function createJurisprudenciaDocumentFromURL(url: string) {
         "Fonte": "STJ (DGSI)",
         "URL": url,
         "Jurisprudência": { Index: ["Simples"], Original: ["Simples"], Show: ["Simples"] },
-        "STATE": "importação"
+        "STATE": "público",
     }
     addGenericField(obj, "Relator Nome Profissional", table, "Relator");
     addGenericField(obj, "Relator Nome Completo", table, "Relator");
