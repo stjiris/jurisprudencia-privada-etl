@@ -1,7 +1,0 @@
-{
-    "host": "<host>",
-    "user": "<user>",
-    "pass": "<pass>",
-    "from": "<from>",
-    "to": ["<to1>"]
-}
