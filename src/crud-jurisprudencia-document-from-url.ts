@@ -1,4 +1,4 @@
-import { calculateUUID, HASHField, JurisprudenciaDocument, JurisprudenciaDocumentDateKey, JurisprudenciaDocumentGenericKey, JurisprudenciaDocumentKey, JurisprudenciaDocumentKeys, JurisprudenciaVersion, PartialJurisprudenciaDocument, isJurisprudenciaDocumentContentKey, isJurisprudenciaDocumentDateKey, isJurisprudenciaDocumentExactKey, isJurisprudenciaDocumentGenericKey, isJurisprudenciaDocumentHashKey, isJurisprudenciaDocumentObjectKey, isJurisprudenciaDocumentStateKey, isJurisprudenciaDocumentTextKey, JurisprudenciaDocumentProperties, JurisprudenciaDocumentExactKey } from "@stjiris/jurisprudencia-document";
+import { calculateUUID, HASHField, JurisprudenciaDocument, JurisprudenciaDocumentDateKey, JurisprudenciaDocumentGenericKey, JurisprudenciaDocumentKey, JurisprudenciaDocumentKeys, JurisprudenciaVersion, PartialJurisprudenciaDocument, isJurisprudenciaDocumentContentKey, isJurisprudenciaDocumentDateKey, isJurisprudenciaDocumentExactKey, isJurisprudenciaDocumentGenericKey, isJurisprudenciaDocumentHashKey, isJurisprudenciaDocumentObjectKey, isJurisprudenciaDocumentStateKey, isJurisprudenciaDocumentTextKey, JurisprudenciaDocumentProperties, JurisprudenciaDocumentExactKey, calculateHASH } from "@stjiris/jurisprudencia-document";
 import { JSDOM } from "jsdom";
 import { client } from "./client";
 import { createHash } from "crypto";
@@ -258,14 +258,15 @@ export async function createJurisprudenciaDocumentFromURL(url: string) {
 
     await addSumarioAndTexto(obj, table)
 
-    obj["HASH"] = {
-        Original: calculateUUID(obj.Original),
-        Processo: calculateUUID(obj["Número de Processo"] || ""),
-        Sumário: calculateUUID(obj.Sumário || ""),
-        Texto: calculateUUID(obj.Texto || "")
-    }
+    obj["HASH"] = calculateHASH({
+        ...obj,
+        Original: obj.Original,
+        "Número de Processo": obj["Número de Processo"] || "",
+        Sumário: obj.Sumário || "",
+        Texto: obj.Texto || "",
+    })
 
-    obj["UUID"] = calculateUUID(obj["HASH"], ["Sumário", "Texto", "Processo"])
+    obj["UUID"] = calculateUUID(obj["HASH"])
     return obj;
 }
 
@@ -330,14 +331,14 @@ export async function updateJurisprudenciaDocumentFromURL(id: string, url: strin
         if (isJurisprudenciaDocumentStateKey(key)) continue;
     }
 
-    updateObject["HASH"] = {
-        Original: calculateUUID(updateObject.Original),
-        Processo: calculateUUID(updateObject["Número de Processo"] || ""),
-        Sumário: calculateUUID(updateObject.Sumário || ""),
-        Texto: calculateUUID(updateObject.Texto || "")
-    }
+    updateObject["HASH"] = calculateHASH({
+        Original: updateObject.Original,
+        "Número de Processo": updateObject["Número de Processo"] || "",
+        Sumário: updateObject.Sumário || "",
+        Texto: updateObject.Texto || ""
+    });
 
-    updateObject["UUID"] = calculateUUID(updateObject["HASH"], ["Sumário", "Texto", "Processo"])
+    updateObject["UUID"] = calculateUUID(updateObject["HASH"])
     updateObject["STATE"] = currentObject.STATE;
 
     await conflicts(id, conflictsObj)
