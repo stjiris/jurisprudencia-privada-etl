@@ -16,7 +16,9 @@
     "@stjiris/jurisprudencia-document": "^11.1.4",
     "@types/nodemailer": "^6.4.13",
     "express": "^4.18.2",
+    "gd-sprest": "^7.8.7",
     "jsdom": "^22.1.0",
+    "node-sp-auth": "^3.0.8",
     "nodemailer": "^6.9.7"
   },
   "devDependencies": {

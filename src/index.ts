@@ -1,11 +1,8 @@
 import { allLinks } from "./dgsi-links";
 import { JurisprudenciaVersion } from "@stjiris/jurisprudencia-document";
-import { indexJurisprudenciaDocumentFromURL, updateJurisprudenciaDocumentFromURL } from "./crud-jurisprudencia-document-from-url";
+import { indexJurisprudenciaDocumentFromURL } from "./crud-jurisprudencia-document-from-url";
 import { client } from "./client";
 import { Report, report } from "./report";
-import { WriteResponseBase } from "@elastic/elasticsearch/lib/api/types";
-
-const FLAG_FULL_UPDATE = process.argv.some(arg => arg === "-f" || arg === "--full");
 
 const FLAG_HELP = process.argv.some(arg => arg === "-h" || arg === "--help");
 
@@ -18,7 +15,6 @@ function showHelp(code: number, error?: string) {
     process.stdout.write(`Populate Jurisprudencia index. (${JurisprudenciaVersion})\n`)
     process.stdout.write(`Use ES_URL, ES_USER and ES_PASS environment variables to setup the elasticsearch client\n`)
     process.stdout.write(`Options:\n`)
-    process.stdout.write(`\t--full, -f\tWork in progress. Should update every document already indexed and check if there are deletions\n`);
     process.stdout.write(`\t--help, -h\tshow this help\n`)
     process.exit(code);
 }
@@ -45,7 +41,7 @@ async function main() {
         dateStart: new Date(),
         deleted: 0,
         skiped: 0,
-        soft: !FLAG_FULL_UPDATE,
+        soft: true,
         target: JurisprudenciaVersion,
         updated: 0
     }
@@ -64,17 +60,11 @@ async function main() {
     for await (let l of allLinks()) {
         let id = await indexedUrlId(l);
         i++;
-        if (id && !FLAG_FULL_UPDATE) {
+        if (id) {
             info.skiped++;
             continue;
         };
-        let r: WriteResponseBase | undefined = undefined;
-        if (id) {
-            r = await updateJurisprudenciaDocumentFromURL(id, l);
-        }
-        else {
-            r = await indexJurisprudenciaDocumentFromURL(l);
-        }
+        let r = await indexJurisprudenciaDocumentFromURL(l);
         switch (r?.result) {
             case "created":
                 info.created++;

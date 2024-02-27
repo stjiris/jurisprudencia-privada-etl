@@ -1,30 +1,38 @@
 import { calculateUUID, HASHField, JurisprudenciaDocument, JurisprudenciaDocumentDateKey, JurisprudenciaDocumentGenericKey, JurisprudenciaDocumentKey, JurisprudenciaDocumentKeys, JurisprudenciaVersion, PartialJurisprudenciaDocument, isJurisprudenciaDocumentContentKey, isJurisprudenciaDocumentDateKey, isJurisprudenciaDocumentExactKey, isJurisprudenciaDocumentGenericKey, isJurisprudenciaDocumentHashKey, isJurisprudenciaDocumentObjectKey, isJurisprudenciaDocumentStateKey, isJurisprudenciaDocumentTextKey, JurisprudenciaDocumentProperties, JurisprudenciaDocumentExactKey, calculateHASH } from "@stjiris/jurisprudencia-document";
 import { JSDOM } from "jsdom";
-import { client } from "./client";
+import { authPromise, client, info } from "./client";
 import { createHash } from "crypto";
-import { DescritorOficial } from "./descritor-oficial";
 import { IndexResponse, UpdateResponse, WriteResponseBase } from "@elastic/elasticsearch/lib/api/types";
 import { conflicts } from "./report";
-import { JSDOMfromURL } from "./jsdom-util";
-import { DGSI_LINK_PATT } from "./dgsi-links";
+import { getNext } from "./dgsi-links";
+import path from "path";
 
 export async function jurisprudenciaOriginalFromURL(url: string) {
-    if (url.match(DGSI_LINK_PATT)) {
-        let page = await JSDOMfromURL(url);
-        let tables = Array.from(page.window.document.querySelectorAll("table")).filter(o => !o.parentElement?.closest("table"));
-        return tables.flatMap(table => Array.from(table.querySelectorAll("tr")).filter(row => row.closest("table") == table))
-            .filter(tr => tr.cells.length > 1)
-            .reduce((acc, tr) => {
-                let key = tr.cells[0].textContent?.replace(":", "").trim()
-                let value = tr.cells[1];
-                if (key && key.length > 0) {
-                    acc[key] = value;
-                }
-                return acc;
-            }, {} as Record<string, HTMLTableCellElement | undefined>);
-    }
+    if (!url.endsWith(".doc") && !url.endsWith(".docx")) return null;
 
-    return null;
+    const cookie = await authPromise.then(options => options.headers.Cookie);
+    const fileFetch = await fetch(url, {
+        headers: {
+            cookie
+        },
+    });
+    const fd = new FormData();
+    fd.append("file", await fileFetch.blob(), "file." + url.split(".").pop());
+    let html = await fetch("https://iris.sysresearch.org/anonimizador/html", {
+        method: "POST",
+        body: fd,
+    }).then(r => r.text());
+
+    let decisaoTextoIntegral = new JSDOM(html);
+    const fileUrl = new URL(url);
+    let reqInfo = info.getFileByServerRelativeUrl(fileUrl.pathname).getInfo();
+    let proc = decodeURI(fileUrl.pathname);
+    let data = await getNext(reqInfo.url);
+    return {
+        "Decisão Texto Integral": decisaoTextoIntegral.window.document.body,
+        "Metadata": new JSDOM(JSON.stringify(data)).window.document.body,
+        "Processo": new JSDOM(proc).window.document.body,
+    };
 }
 
 function addGenericField(obj: PartialJurisprudenciaDocument, key: JurisprudenciaDocumentGenericKey, table: Record<string, HTMLTableCellElement | undefined>, tableKey: string) {
@@ -38,21 +46,6 @@ function addGenericField(obj: PartialJurisprudenciaDocument, key: Jurisprudencia
     }
 }
 
-
-
-function addDescritores(obj: PartialJurisprudenciaDocument, table: Record<string, HTMLTableCellElement | undefined>) {
-    if (table.Descritores) {
-        // TODO: handle , and ; in descritores (e.g. "Ação Civil; Ação Civil e Administrativa") however dont split some cases (e.g. "Art 321º, do código civil")
-        let desc = table.Descritores.textContent?.trim().split(/\n|;/).map(desc => desc.trim().replace(/\.$/g, '').replace(/^(:|-|,|"|“|”|«|»|‘|’)/, '').trim()).filter(desc => desc.length > 0)
-        if (desc && desc.length > 0) {
-            obj.Descritores = {
-                Index: desc.map(desc => DescritorOficial[desc]),
-                Original: desc,
-                Show: desc.map(desc => DescritorOficial[desc])
-            }
-        }
-    }
-}
 
 function addMeioProcessual(obj: PartialJurisprudenciaDocument, table: Record<string, HTMLTableCellElement | undefined>) {
     if (table["Meio Processual"]) {
@@ -183,13 +176,13 @@ async function addSumarioAndTexto(obj: PartialJurisprudenciaDocument, table: Rec
 }
 
 export async function createJurisprudenciaDocumentFromURL(url: string) {
-    let table = await jurisprudenciaOriginalFromURL(url);
+    let table: any = await jurisprudenciaOriginalFromURL(url);
     if (!table) return;
 
     let Original: JurisprudenciaDocument["Original"] = {};
     let CONTENT: JurisprudenciaDocument["CONTENT"] = [];
     let Tipo: JurisprudenciaDocument["Tipo"] = "Acordão";
-    let numProc: JurisprudenciaDocument["Número de Processo"] = table.Processo?.textContent?.trim().replace(/\s-\s.*$/, "").replace(/ver\s.*/, "");
+    let numProc: JurisprudenciaDocument["Número de Processo"] = table.Processo?.textContent?.trim();
     let DataAcordao: JurisprudenciaDocument["Data"] | null = null;
     let DataToUse: JurisprudenciaDocument["Data"] | null = null;
     /*
@@ -230,14 +223,13 @@ export async function createJurisprudenciaDocumentFromURL(url: string) {
         "CONTENT": CONTENT,
         "Data": Data,
         "Número de Processo": numProc,
-        "Fonte": "STJ (DGSI)",
+        "Fonte": "STJ (Sharepoint)",
         "URL": url,
         "Jurisprudência": { Index: ["Simples"], Original: ["Simples"], Show: ["Simples"] },
-        "STATE": "público",
+        "STATE": "privado",
     }
     addGenericField(obj, "Relator Nome Profissional", table, "Relator");
     addGenericField(obj, "Relator Nome Completo", table, "Relator");
-    addDescritores(obj, table)
     addMeioProcessual(obj, table)
     addVotacao(obj, table)
     addSeccaoAndArea(obj, table)
@@ -273,81 +265,10 @@ export async function createJurisprudenciaDocumentFromURL(url: string) {
 export async function indexJurisprudenciaDocumentFromURL(url: string): Promise<IndexResponse | undefined> {
     let obj = await createJurisprudenciaDocumentFromURL(url);
     if (obj) {
+        console.log(obj);
         return client.index({
             index: JurisprudenciaVersion,
             body: obj
         })
     }
-}
-
-export async function updateJurisprudenciaDocumentFromURL(id: string, url: string): Promise<UpdateResponse | undefined> {
-    let newObject = await createJurisprudenciaDocumentFromURL(url);
-    if (!newObject) return;
-    let currentObject = (await client.get<JurisprudenciaDocument>({ index: JurisprudenciaVersion, id: id, _source: true }))._source!;
-    let updateObject: PartialJurisprudenciaDocument = {};
-    const needsUpdate = newObject.HASH?.Original !== currentObject.HASH?.Original ||
-        newObject.HASH?.Processo !== currentObject.HASH?.Processo ||
-        newObject.HASH?.Sumário !== currentObject.HASH?.Sumário ||
-        newObject.HASH?.Texto !== currentObject.HASH?.Texto ||
-        newObject.UUID !== currentObject.UUID;
-
-    if (!needsUpdate) { return; }
-    // Concat only new values to CONTENT without duplicates
-    let CONTENT = newObject.CONTENT?.filter(o => !currentObject.CONTENT?.includes(o)) || [];
-    updateObject.CONTENT = currentObject.CONTENT?.concat(CONTENT);
-
-    const conflictsObj: Partial<Record<JurisprudenciaDocumentDateKey | JurisprudenciaDocumentExactKey, { Current: string, New: string }>> = {}
-
-    for (let key of JurisprudenciaDocumentKeys) {
-        if (isJurisprudenciaDocumentContentKey(key)) continue; // DONE ABOVE
-        if (isJurisprudenciaDocumentDateKey(key) && newObject[key] && newObject[key] !== currentObject[key]) {
-            if (!currentObject[key]) {
-                updateObject[key] = newObject[key];
-            }
-            else {
-                updateObject[key] = currentObject[key];
-                conflictsObj[key] = { Current: currentObject[key] || "", New: newObject[key] || "" };
-            }
-        }
-        if (isJurisprudenciaDocumentExactKey(key) && newObject[key] && newObject[key] !== currentObject[key]) {
-            if (!currentObject[key] || key === "UUID") {
-                updateObject[key] = newObject[key];
-            }
-            else {
-                updateObject[key] = currentObject[key];
-                conflictsObj[key] = { Current: currentObject[key] || "", New: newObject[key] || "" };
-            }
-        }
-        if (isJurisprudenciaDocumentGenericKey(key)) {
-            updateObject[key] = { ...(currentObject[key] || { Index: [], Show: [] }), Original: newObject[key]?.Original || [] };
-        }
-        if (isJurisprudenciaDocumentHashKey(key)) continue; // DONE BELOW
-        if (isJurisprudenciaDocumentObjectKey(key)) {
-            updateObject[key] = newObject[key];
-        }
-        if (isJurisprudenciaDocumentTextKey(key)) {
-            updateObject[key] = newObject[key];
-        };
-        if (isJurisprudenciaDocumentStateKey(key)) continue;
-    }
-
-    updateObject["HASH"] = calculateHASH({
-        Original: updateObject.Original,
-        "Número de Processo": updateObject["Número de Processo"] || "",
-        Sumário: updateObject.Sumário || "",
-        Texto: updateObject.Texto || ""
-    });
-
-    updateObject["UUID"] = calculateUUID(updateObject["HASH"])
-    updateObject["STATE"] = currentObject.STATE;
-
-    await conflicts(id, conflictsObj)
-
-    return await client.update({
-        index: JurisprudenciaVersion,
-        id: id,
-        body: {
-            doc: updateObject
-        }
-    })
 }
