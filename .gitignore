@@ -2,3 +2,4 @@ dist/
 node_modules/
 .mail.conf.json
 .env
+data2/

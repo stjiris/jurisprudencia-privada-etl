@@ -1,12 +1,8 @@
 import { createTransport } from "nodemailer";
 import { Report } from "./report";
+import { envOrFail } from "../aux";
 
 export function getMailConfig() {
-    const envOrFail = (name: string) => {
-        const value = process.env[name];
-        if (!value) throw new Error(`Missing environment variable ${name}`);
-        return value;
-    }
     return {
         host: envOrFail("MAIL_HOST"),
         user: envOrFail("MAIL_USER"),

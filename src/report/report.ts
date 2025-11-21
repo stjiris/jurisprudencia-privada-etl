@@ -1,5 +1,5 @@
 import { MappingProperty } from "@elastic/elasticsearch/lib/api/types";
-import { client } from "./client";
+import { client } from "../client";
 import { JurisprudenciaDocumentDateKey, JurisprudenciaDocumentExactKey } from "@stjiris/jurisprudencia-document";
 import { notify } from "./notify";
 
@@ -28,6 +28,8 @@ export const ReportProps: Record<keyof Report, MappingProperty> = {
 const ReportVersion = "jurisprudencia-indexer-report.2.0"
 
 export async function report(report: Report) {
+    console.log(report);
+
     if (!(await client.indices.exists({ index: ReportVersion }).catch(e => false))) {
         await client.indices.create({
             index: ReportVersion,
@@ -42,7 +44,6 @@ export async function report(report: Report) {
         index: ReportVersion,
         document: report
     })
-    console.log(report);
     notify(report);
 }
 
