@@ -1,4 +1,4 @@
-import { initialUpdateDrive, getDrivesIds, initializeGraphClient } from "./sharepoint_comunication";
+import { updateDrive, getDrivesIds, initializeGraphClient } from "./sharepoint_comunication";
 import { Drive, DriveItem } from '@microsoft/microsoft-graph-types';
 import { envOrFail, envOrFailDict, envOrFailArray } from './aux';
 import { Report, report } from "./report/report";
@@ -49,7 +49,8 @@ async function insertDrive() {
         skiped: 0,
         soft: !FLAG_FULL_UPDATE,
         target: JurisprudenciaVersion,
-        updated: 0
+        updated: 0,
+        updated_metadata: 0
     }
     process.once("SIGINT", () => {
         info.dateEnd = new Date();
@@ -57,12 +58,11 @@ async function insertDrive() {
         report(info).then(() => process.exit(0));
     })
 
-    let update: FileSystemUpdate = new FileSystemUpdate(drive_names, new Date(), new Date());
+    let update: FileSystemUpdate = new FileSystemUpdate();
 
     for (const [drive_name, drive_id] of Object.entries(drive_ids)) {
-        update.add(await initialUpdateDrive(drive_name, drive_id, root_path, graphClient, site_id));
+        update.add_update(await updateDrive(drive_name, drive_id, root_path, graphClient, site_id));
     }
-
     info.dateEnd = new Date()
     await report(info)
 }
@@ -114,7 +114,7 @@ async function updateToFileSystem() {
  */
 async function main() {
     dotenv.config();
-    console.log(await insertDrive());
+    await insertDrive();
 }
 
 main().catch(e => console.error(e));

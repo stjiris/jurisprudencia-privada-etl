@@ -2,10 +2,10 @@
   "name": "jurisprudencia-etl",
   "version": "0.0.0",
   "description": "",
-  "main": "sharepoint.js",
+  "main": "index.js",
   "scripts": {
     "build": "tsc",
-    "run": "node dist/sharepoint.js",
+    "run": "node dist/index.js",
     "start": "npm run build && npm run run"
   },
   "keywords": [],
@@ -21,11 +21,13 @@
     "axios": "^1.13.1",
     "body-parser": "^2.2.0",
     "dotenv": "^17.2.2",
+    "exceljs": "^4.4.0",
     "express": "^4.21.2",
     "express-rate-limit": "^8.2.0",
     "jsdom": "^22.1.0",
     "mammoth": "^1.10.0",
-    "nodemailer": "^7.0.10"
+    "nodemailer": "^7.0.10",
+    "xlsx": "^0.18.5"
   },
   "devDependencies": {
     "@types/elasticsearch": "^5.0.40",

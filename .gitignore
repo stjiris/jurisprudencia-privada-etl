@@ -3,3 +3,4 @@ node_modules/
 .mail.conf.json
 .env
 data2/
+data/
