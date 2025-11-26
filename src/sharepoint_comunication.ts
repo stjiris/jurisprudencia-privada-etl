@@ -1,20 +1,16 @@
 import { ClientSecretCredential } from '@azure/identity';
 import { Client, PageCollection } from '@microsoft/microsoft-graph-client';
 import { TokenCredentialAuthenticationProvider } from '@microsoft/microsoft-graph-client/authProviders/azureTokenCredentials';
-import { envOrFail } from './aux';
-import { DriveItem } from '@microsoft/microsoft-graph-types';
-import { FileState, FileSystemDocument, FileSystemUpdate, findLastUpdate, generateRelPath, introduceNewFile } from './filesystem';
-import { report, Report } from './report/report';
-import { response } from 'express';
+import { FileSystemDocument, FileSystemUpdate, findLastUpdate, generateRelPath } from './filesystem';
 
 const SECTIONTOAREA: Record<string, string> = {
-	"1ª Secção": "Judicial - Acórdãos Cível",
-	"2ª Secção": "Judicial - Acórdãos Cível",
-	"3ª Secção": "Judicial - Acórdãos Criminal",
-	"4ª Secção": "Judicial - Acórdãos Social",
-	"5ª Secção": "Judicial - Acórdãos Criminal",
-	"6ª Secção": "Judicial - Acórdãos Cível",
-	"7ª Secção": "Judicial - Acórdãos Cível",
+	"1ª Secção": "Área Cível",
+	"2ª Secção": "Área Cível",
+	"3ª Secção": "Área Criminal",
+	"4ª Secção": "Área Social",
+	"5ª Secção": "Área Criminal",
+	"6ª Secção": "Área Cível",
+	"7ª Secção": "Área Cível",
 	"Contencioso": "Contencioso",
 };
 
@@ -63,18 +59,18 @@ async function updateDriveAux(client: Client, initialPathOrUrl: string, drive_na
 
 	const previous_update_path = findLastUpdate(root_path, drive_name);
 	const previous_update = previous_update_path ? FileSystemUpdate.fromJson(previous_update_path) ?? undefined : undefined;
-	let update: FileSystemUpdate = new FileSystemUpdate(drive_name);
+	let update: FileSystemUpdate = new FileSystemUpdate(new Set([drive_name]));
 	let next: string | undefined = previous_update ? previous_update.next_link ?? previous_update.delta_link ?? initialPathOrUrl : initialPathOrUrl;
 
 	while (next && pages < MAX_PAGES) {
 		const normalized = normalizeGraphUrlToPath(next);
 		const resp = await client.api(normalized).get();
 		update.add_update(await retrieveSharepointDocuments(client, resp, drive_name, drive_id, root_path, previous_update?.date_start));
+
 		update.delta_link = resp["@odata.deltaLink"];
 		update.next_link = resp["@odata.nextLink"];
 
 		if (update.delta_link) {
-			update.write(root_path);
 			return update;
 		}
 		if (update.next_link) {
@@ -87,7 +83,6 @@ async function updateDriveAux(client: Client, initialPathOrUrl: string, drive_na
 	}
 
 	if (pages >= MAX_PAGES) {
-		update.write(root_path);
 		return update;
 	}
 
@@ -103,62 +98,42 @@ async function retrieveSharepointDocuments(client: Client, resp: any, drive_name
 		if (drive_item.file) {
 			const sharepoint_id = drive_item.id;
 			const sharepoint_path = drive_item.parentReference.path;
-			const created_date = drive_item.createdDateTime;
-			const last_modified_date = drive_item.lastModifiedDateTime;
 			const sharepoint_url = drive_item.webUrl
 			const xor_hash = drive_item.file.hashes.quickXorHash;
+			const sharepoint_path_rel = generateRelPath(sharepoint_path, drive_id, drive_name);
+
+
+			const created_date = drive_item.createdDateTime;
+			const last_modified_date = drive_item.lastModifiedDateTime;
 			const size = drive_item.size
 			const full_name = drive_item.name;
 			const lastDot = full_name.lastIndexOf(".");
 			const original_name = lastDot > 0 ? full_name.slice(0, lastDot) : full_name;
 			const extension = lastDot > 0 ? full_name.slice(lastDot + 1) : "";
 
-			const sharepoint_path_rel = generateRelPath(sharepoint_path, drive_id, drive_name);
-			const filesystem_path = transformSharepointPathToFilesystemPath(sharepoint_path_rel);
+			const { date: date, section: section, area: area } = extractDataFromPath(sharepoint_path_rel);
 			const content = await getFileFromSharepoint(client, drive_id, sharepoint_id);
-			//console.log(filesystem_path)
 
-			const filesystemDocument = new FileSystemDocument(sharepoint_id,
-				sharepoint_path,
-				created_date,
+			if (!date || !area)
+				continue;
+			const filesystem_path = `/${area}/${date.getFullYear()}/${date.getMonth() + 1}/${date.getDay()}`
+
+			const filesystemDocument = new FileSystemDocument(created_date,
 				last_modified_date,
-				sharepoint_url,
 				original_name,
-				xor_hash,
 				size,
-				drive_name,
-				drive_id,
-				`${sharepoint_path_rel}/${original_name}`,
 				`${filesystem_path}/${original_name}`,
+				extension
 			);
 
-			filesystemDocument.extension = extension;
-			filesystemDocument.content = content;
-			update.add_document(introduceNewFile(filesystemDocument, root_path, last_update_date));
-
-			//console.log(name);
-			//console.log("drive_item: ")
-			//console.log(drive_item);
-
+			filesystemDocument.addSharepointMetadata(drive_name, drive_id, sharepoint_id, sharepoint_path, sharepoint_path_rel, sharepoint_url, xor_hash, content);
+			filesystemDocument.addMetadata(area, date, section);
+			update.add_document(filesystemDocument.introduceNewFile(root_path, last_update_date));
 		}
 	}
 
 	return update;
 }
-
-/* export async function updateDrive(update: FileSystemUpdate, client: Client, drive_name_delta: [string, string], root_folder: string): Promise<Report> {
-  await updateDriveAux(client, drive_name_delta[1], root_folder);
-  return {
-	created: 0,
-	dateEnd: new Date(),
-	dateStart: new Date(),
-	deleted: 0,
-	skiped: 0,
-	soft: false,
-	target: "",
-	updated: 0
-  }
-} */
 
 async function getFileFromSharepoint(client: Client, drive_id: string, sharepoint_id: string): Promise<Buffer> {
 	const webStream = await client
@@ -177,42 +152,27 @@ async function getFileFromSharepoint(client: Client, drive_id: string, sharepoin
 	return Buffer.concat(chunks.map(c => Buffer.from(c)));
 }
 
-function transformSharepointPathToFilesystemPath(sharepoint_path_rel: string): string {
-	const path_parts = sharepoint_path_rel.split("/").filter(Boolean);
-	let final_path = [];
-	switch (path_parts[0]) {
-		case "Anonimização":
-			const area = SECTIONTOAREA[path_parts[1]] ?? SECTIONTOAREA[path_parts[2]] ?? path_parts[1];
-			final_path.push(area);
+function extractDataFromPath(path: string): { date?: Date, section?: string, area?: string } {
+	const result: { date?: Date; section?: string; area?: string } = {};
 
-			const { year: y1, month: m1 } = extractYearMonth(sharepoint_path_rel);
-			final_path.push(y1);
-			final_path.push(m1);
-			return "/" + final_path.join("/");
+	const matches = [...path.matchAll(/(\d{1,2})-(\d{2})(?:-(\d{4}))?/g)];
+	const last = matches.at(-1);
 
-		case "Jurisprudência":
-			return "";
-		default:
-			return "";
-	}
-}
-
-function extractYearMonth(path: string, now = new Date()): { year: number; month: string } {
-	const re = /(\d{1,2})-(\d{2})(?:-(\d{4}))?/g;
-	let lastMatch: RegExpExecArray | null = null;
-	let m: RegExpExecArray | null;
-	while ((m = re.exec(path)) !== null) lastMatch = m;
-
-	if (!lastMatch) {
-		throw new Error(`No date-like segment found in path: "${path}"`);
+	if (last) {
+		const day = Number(last[1]);
+		const month = Number(last[2]);
+		const year = Number(last[3] ?? new Date().getFullYear());
+		result.date = new Date(year, month - 1, day);
 	}
 
-	const dayStr = lastMatch[1];
-	const monthStr = lastMatch[2];
-	const yearStr = lastMatch[3];
+	const lower = path.toLowerCase();
+	for (const key of Object.keys(SECTIONTOAREA)) {
+		if (lower.includes(key.toLowerCase())) {
+			result.section = key;
+			result.area = SECTIONTOAREA[key];
+			break;
+		}
+	}
 
-	const year = yearStr ? parseInt(yearStr, 10) : now.getFullYear();
-	const month = monthStr.padStart(2, "0");
-
-	return { year, month };
+	return result;
 }

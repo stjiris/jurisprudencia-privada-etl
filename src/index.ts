@@ -63,55 +63,13 @@ async function insertDrive() {
     for (const [drive_name, drive_id] of Object.entries(drive_ids)) {
         update.add_update(await updateDrive(drive_name, drive_id, root_path, graphClient, site_id));
     }
-    info.dateEnd = new Date()
-    await report(info)
-}
-/* 
-async function updateToFileSystem() {
-    if (FLAG_HELP) return showHelp(0);
-    let info: Report = {
-        created: 0,
-        dateEnd: new Date(),
-        dateStart: new Date(),
-        deleted: 0,
-        skiped: 0,
-        soft: !FLAG_FULL_UPDATE,
-        target: JurisprudenciaVersion,
-        updated: 0
-    }
-
-    process.once("SIGINT", () => {
-        info.dateEnd = new Date();
-        console.log("Terminado a pedido do utilizador");
-        report(info).then(() => process.exit(0));
-    })
-
-    const tenantId = envOrFail('TENANT_ID');
-    const clientId = envOrFail('CLIENT_ID');
-    const clientSecret = envOrFail('CLIENT_SECRET');
-    const site_id = envOrFail("SITE_ID");
-    const drive_names = envOrFailArray("DRIVES");
-    const root_folder = envOrFail("LOCAL_ROOT");
-    const delta_urls: Record<string, string> = envOrFailDict("DELTA_URLS");
-
-
-    const graphClient: Client = initializeGraphClient(tenantId, clientId, clientSecret);
-    const drivesDict: Record<string, string> = await getDrivesIds(graphClient, site_id, drive_names);
-
-    for (const [drive_name, drive_delta] of Object.entries(drive_name_delta)) {
-        update += await initialUpdateDrive(graphClient, site_id, drive_name, drive_id, root_path);
-    }
-
-
-    Object.entries(delta_urls).forEach(async (drive_name_delta) => {
-        const new_info = await updateDrive(new FileSystemUpdate(drive_names, new Date(), new Date()), graphClient, drive_name_delta, root_folder);
-    })
-
+    update.date_end = new Date();
+    update.write(root_path);
 
     info.dateEnd = new Date()
     await report(info)
 }
- */
+
 async function main() {
     dotenv.config();
     await insertDrive();
@@ -119,11 +77,3 @@ async function main() {
 
 main().catch(e => console.error(e));
 
-
-// test function
-async function getDriveIds(): Promise<Record<string, string>> {
-    const graphClient = getGraphClient();
-    const site_id = envOrFail("SITE_ID");
-    const drive_names = envOrFailArray("DRIVES");
-    return getDrivesIds(graphClient, site_id, drive_names);
-}

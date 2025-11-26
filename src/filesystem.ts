@@ -1,10 +1,11 @@
+import { raw } from "body-parser";
 import { Report } from "./report/report";
 import fs from "fs";
 import path from "path";
 import XLSX from "xlsx";
 
 export enum FileState { CREATED = "CREATED", UPDATED = "UPDATED", DELETED = "DELETED", UPDATED_METADATA = "UPDATED_METADATA" };
-type Filesystem_Update_Paths = { previous_sharepoint_path?: string, sharepoint_path: string, previous_system_path?: string, system_path: string }
+type Filesystem_Update_Paths = { previous_sharepoint_path?: string, sharepoint_path?: string, previous_system_path?: string, system_path: string }
 type Metadata = { process_number?: string, judge?: string, decision?: string, process_mean?: string, descriptors?: string[], section?: string; area?: string; date?: Date }
 
 const ACORDAOS_PATH = "/Acordãos"
@@ -18,93 +19,90 @@ const UPDATE_NAME = "Update"
 
 export class FileSystemDocument {
     // properties from sharepoint
-    sharepoint_id: string;
-    sharepoint_path: string;
-    creation_date: Date;
-    last_update_date: Date;
-    sharepoint_url: string;
-    original_name: string;
-    xor_hash: string;
-    size: number;
-    drive_name: string;
-    drive_id: string;
+    drive_name?: string;
+    drive_id?: string;
+    sharepoint_id?: string;
+    sharepoint_path?: string;
+    sharepoint_url?: string;
+    xor_hash?: string;
+
+    // decision metadata
     content?: Buffer;
-    extension?: string;
-
-    // other metadata
-    filesystem_date: Date;
-    file_paths: Filesystem_Update_Paths;
-
-    state: FileState;
-
     metadata?: Metadata;
 
+    // filesystem metadata
+    creation_date: Date;
+    last_update_date: Date;
+    original_name: string;
+    size: number;
+    file_paths: Filesystem_Update_Paths;
+    extension: string;
+
+    filesystem_date: Date = new Date();
+    state: FileState = FileState.CREATED;
+
     constructor(
-        sharepoint_id: string,
-        sharepoint_path: string,
         creation_date: Date,
         last_update_date: Date,
-        sharepoint_url: string,
         original_name: string,
-        xor_hash: string,
         size: number,
-        drive_name: string,
-        drive_id: string,
-        sharepoint_path_rel: string,
         filesystem_path: string,
+        extension: string
     ) {
         // properties from sharepoint
-        this.sharepoint_id = sharepoint_id;
-        this.sharepoint_path = sharepoint_path;
         this.creation_date = new Date(creation_date);
         this.last_update_date = new Date(last_update_date);
-        this.sharepoint_url = sharepoint_url;
         this.original_name = original_name;
-        this.xor_hash = xor_hash;
         this.size = size;
-        this.drive_name = drive_name;
-        this.drive_id = drive_id;
-        this.content = undefined;
-        this.extension = undefined;
-
-        this.file_paths = { sharepoint_path: sharepoint_path_rel, system_path: filesystem_path };
-        this.filesystem_date = new Date();
-        this.state = FileState.CREATED;
+        this.file_paths = { system_path: filesystem_path };
+        this.extension = extension;
     }
 
-    addMetadata(metadata_doc: FileSystemDocument | void): void {
-        if (!metadata_doc || !metadata_doc.metadata)
-            return;
+    addSharepointMetadata(drive_name: string, drive_id: string, sharepoint_id: string, sharepoint_path: string, sharepoint_path_rel: string, sharepoint_url?: string, xor_hash?: string, content?: Buffer) {
+        this.drive_name = drive_name;
+        this.drive_id = drive_id;
+        this.sharepoint_id = sharepoint_id;
+        this.sharepoint_path = sharepoint_path;
+        this.file_paths.sharepoint_path = sharepoint_path_rel;
+        this.sharepoint_url = sharepoint_url;
+        this.xor_hash = xor_hash;
+        this.content = content;
+    }
+
+    addMetadata(area?: string, date?: Date, section?: string, process_number?: string, decision?: string, descriptors?: string[], judge?: string, process_mean?: string): void {
         if (!this.metadata) {
-            this.metadata = metadata_doc.metadata;
+            this.metadata = { process_number, area, section, decision, descriptors, judge, process_mean };
             return;
         }
-        this.metadata.process_number = this.metadata.process_number ?? metadata_doc.metadata.process_number;
-        this.metadata.area = this.metadata.area ?? metadata_doc.metadata.area;
-        this.metadata.section = this.metadata.section ?? metadata_doc.metadata.section;
-        this.metadata.decision = this.metadata.decision ?? metadata_doc.metadata.decision;
-        this.metadata.descriptors = this.metadata.descriptors ?? metadata_doc.metadata.descriptors;
-        this.metadata.judge = this.metadata.judge ?? metadata_doc.metadata.judge;
-        this.metadata.process_mean = this.metadata.process_mean ?? metadata_doc.metadata.process_mean;
+        this.metadata.area = this.metadata.area ?? area;
+        this.metadata.date = this.metadata.date ?? date;
+        this.metadata.section = this.metadata.section ?? section;
+        this.metadata.process_number = this.metadata.process_number ?? process_number;
+
+        this.metadata.decision = this.metadata.decision ?? decision;
+        this.metadata.descriptors = this.metadata.descriptors ?? descriptors;
+        this.metadata.judge = this.metadata.judge ?? judge;
+        this.metadata.process_mean = this.metadata.process_mean ?? process_mean;
     }
 
     toJson(): string {
         const obj: any = {
-            sharepoint_id: this.sharepoint_id,
-            sharepoint_path: this.sharepoint_path,
             creation_date: this.creation_date,
             last_update_date: this.last_update_date,
-            sharepoint_url: this.sharepoint_url,
             original_name: this.original_name,
-            xor_hash: this.xor_hash,
             size: this.size,
-            drive_name: this.drive_name,
-            drive_id: this.drive_id,
             extension: this.extension,
             filesystem_date: this.filesystem_date.toISOString(),
             state: this.state,
             file_paths: this.file_paths,
-            metadata: this.metadata
+            metadata: this.metadata,
+
+            drive_name: this.drive_name,
+            drive_id: this.drive_id,
+            sharepoint_id: this.sharepoint_id,
+            sharepoint_path: this.sharepoint_path,
+            sharepoint_url: this.sharepoint_url,
+            xor_hash: this.xor_hash,
         };
 
         for (const k of Object.keys(obj)) {
@@ -112,6 +110,81 @@ export class FileSystemDocument {
         }
 
         return JSON.stringify(obj, null, 2);
+    }
+
+    introduceNewFile(root_folder: string, last_update_date: Date | void): FileSystemDocument | void {
+        //console.log(this.file_paths);
+        switch (this.extension) {
+            case 'docx':
+            case 'pdf':
+                return this.introduceContentFile(root_folder, last_update_date);
+
+            case 'xlsx':
+                return this.introduceMetadataFile(root_folder);
+            default:
+                break;
+        }
+    }
+
+    introduceContentFile(root_folder: string, last_update_date: Date | void): FileSystemDocument | void {
+        if (!this.content)
+            return
+
+        const filesystem_dir_path = `${root_folder}${COMPLETE_FILESYSTEM_PATH}${this.file_paths.system_path}`;
+        const filesystem_path_metadata = `${filesystem_dir_path}/${DETAILS_NAME}.json`;
+
+        const filesystem_sharepoint_dir_path = `${root_folder}${SHAREPOINT_COPY_PATH}${this.file_paths.sharepoint_path}`;
+        const filesystem_sharepoint_path = `${filesystem_sharepoint_dir_path}/${DETAILS_NAME}.json`;
+
+        const filesystem_path_final = `${filesystem_dir_path}/${CONTENT_NAME}.${this.extension}`;
+
+        fs.mkdirSync(filesystem_dir_path, { recursive: true });
+        fs.mkdirSync(filesystem_sharepoint_dir_path, { recursive: true });
+
+        let metadata_doc = FileSystemDocument.fromJson(`${filesystem_dir_path}/${DETAILS_NAME}.json`);
+        if (metadata_doc && metadata_doc.metadata)
+            this.addMetadata(metadata_doc.metadata.area, metadata_doc.metadata.date, metadata_doc.metadata.section, metadata_doc.metadata.process_number, metadata_doc.metadata.decision, metadata_doc.metadata.descriptors, metadata_doc.metadata.judge, metadata_doc.metadata.process_mean);
+
+        if (last_update_date && last_update_date.getTime() < this.last_update_date.getTime()) {
+            this.state = FileState.UPDATED;
+        } else {
+            this.state = FileState.CREATED;
+        }
+
+        fs.writeFileSync(filesystem_path_metadata, this.toJson(), { encoding: "utf-8" });
+        fs.writeFileSync(filesystem_path_final, this.content, { encoding: "utf-8" });
+
+        fs.writeFileSync(filesystem_sharepoint_path, this.toJson(), { encoding: "utf-8" });
+        return this;
+    }
+
+    introduceMetadataFile(root_folder: string): FileSystemDocument | void {
+        if (!this.content)
+            return;
+
+        const filesystem_dir_path = `${root_folder}${COMPLETE_FILESYSTEM_PATH}${this.file_paths.system_path}`;
+        const filesystem_path_metadata = `${filesystem_dir_path}/${DETAILS_NAME}.json`;
+
+        const filesystem_sharepoint_dir_path = `${root_folder}${SHAREPOINT_COPY_PATH}${this.file_paths.sharepoint_path}`;
+        const filesystem_sharepoint_path = `${filesystem_sharepoint_dir_path}/${DETAILS_NAME}.json`;
+
+        fs.mkdirSync(filesystem_dir_path, { recursive: true });
+        fs.mkdirSync(filesystem_sharepoint_dir_path, { recursive: true });
+
+        this.metadata = excelToMetadata(this.content);
+
+        let content_doc = FileSystemDocument.fromJson(`${filesystem_dir_path}/${DETAILS_NAME}.json`);
+        if (content_doc) {
+            content_doc.addMetadata(this.metadata?.area, this.metadata?.date, this.metadata?.section, this.metadata?.process_number, this.metadata?.decision, this.metadata?.descriptors, this.metadata?.judge, this.metadata?.process_mean);
+        } else {
+            content_doc = this;
+        }
+        content_doc.state = FileState.UPDATED_METADATA;
+
+        fs.writeFileSync(filesystem_path_metadata, content_doc.toJson(), { encoding: "utf-8" });
+        fs.writeFileSync(filesystem_sharepoint_path, content_doc.toJson(), { encoding: "utf-8" });
+        return content_doc;
+
     }
 
     static fromJson(input: string): FileSystemDocument | void {
@@ -126,18 +199,12 @@ export class FileSystemDocument {
         const raw_json = JSON.parse(txt);
         const toDate = (v: any) => (v ? new Date(v) : new Date());
 
-        const doc = new FileSystemDocument(raw_json.sharepoint_id ?? "",
-            raw_json.sharepoint_path ?? "",
-            toDate(raw_json.creation_date),
+        const doc = new FileSystemDocument(toDate(raw_json.creation_date),
             toDate(raw_json.last_update_date),
-            raw_json.sharepoint_url ?? "",
             raw_json.original_name ?? "",
-            raw_json.xor_hash ?? "",
-            Number(raw_json.size ?? 0),
-            raw_json.drive_name ?? "",
-            raw_json.drive_id ?? "",
-            raw_json.file_paths?.sharepoint_path ?? "",
-            raw_json.file_paths?.system_path ?? ""
+            raw_json.size ?? 0,
+            raw_json.file_paths?.system_path ?? "",
+            raw_json.extension ?? ""
         )
 
         doc.filesystem_date = toDate(raw_json.filesystem_date);
@@ -170,7 +237,7 @@ export function generateRelPath(sharepoint_path: string, drive_id: string, drive
 
 export class FileSystemUpdate {
     constructor(
-        public target_drive?: string,
+        public target_drives?: Set<string>,
         public date_start: Date = new Date(),
         public date_end?: Date,
         public created_num: number = 0,
@@ -199,7 +266,7 @@ export class FileSystemUpdate {
 
     public toJson(): string {
         const obj = {
-            target_drive: this.target_drive ?? null,
+            target_drives: this.target_drives ? Array.from(this.target_drives) : null,
             date_start: this.date_start ? this.date_start.toISOString() : null,
             date_end: this.date_end ? this.date_end.toISOString() : null,
 
@@ -218,25 +285,28 @@ export class FileSystemUpdate {
             next_link: this.next_link ?? null,
             delta_link: this.delta_link ?? null,
         };
-
         return JSON.stringify(obj, null, 2);
     }
 
     write(root_path: string): void {
-        const updates_dir_path = `${root_path}${LOGS_PATH}/${this.target_drive}`;
-        fs.mkdirSync(updates_dir_path, { recursive: true });
-        const updates_file_path = `${updates_dir_path}/${formatLogDate(this.date_start)}.json`;
+        if (!this.target_drives)
+            return;
+        for (const drive of this.target_drives) {
+            const updates_dir_path = `${root_path}${LOGS_PATH}/${drive}`;
+            fs.mkdirSync(updates_dir_path, { recursive: true });
+            const updates_file_path = `${updates_dir_path}/${formatLogDate(this.date_start)}.json`;
 
-        const drive_dir_path = `${updates_dir_path}/All`
-        fs.mkdirSync(drive_dir_path, { recursive: true });
-        const drive_file_path = `${drive_dir_path}/${formatLogDate(this.date_start)}.json`;
+            const drive_dir_path = `${updates_dir_path}/All`
+            fs.mkdirSync(drive_dir_path, { recursive: true });
+            const drive_file_path = `${drive_dir_path}/${formatLogDate(this.date_start)}.json`;
 
-        this.date_end = new Date();
+            this.date_end = new Date();
 
-        removeLogFilesInFolder(updates_dir_path);
+            removeLogFilesInFolder(updates_dir_path);
 
-        fs.writeFileSync(drive_file_path, this.toJson(), { encoding: "utf-8" });
-        fs.writeFileSync(updates_file_path, this.toJson(), { encoding: "utf-8" });
+            fs.writeFileSync(drive_file_path, this.toJson(), { encoding: "utf-8" });
+            fs.writeFileSync(updates_file_path, this.toJson(), { encoding: "utf-8" });
+        }
     }
 
     public static fromJson(input: string): FileSystemUpdate | void {
@@ -289,7 +359,12 @@ export class FileSystemUpdate {
     }
 
     add_update(other: FileSystemUpdate) {
-        this.target_drive = this.target_drive ?? other.target_drive;
+        if (this.target_drives && other.target_drives) {
+            this.target_drives = new Set([...this.target_drives, ...other.target_drives]);
+        } else {
+            this.target_drives = this.target_drives ?? other.target_drives;
+        }
+
         this.date_start = this.date_start ?? other.date_start;
         this.date_end = this.date_end ?? other.date_end;
         this.next_link = this.next_link ?? other.next_link;
@@ -306,25 +381,25 @@ export class FileSystemUpdate {
         this.updated_metadata = new Set([...this.updated_metadata, ...other.updated_metadata]);
     }
 
-    add_document(other: FileSystemDocument | void) {
-        if (!other)
+    add_document(document: FileSystemDocument | void) {
+        if (!document)
             return
-        switch (other.state) {
+        switch (document.state) {
             case FileState.CREATED:
                 this.created_num += 1;
-                this.created.add(other.file_paths);
+                this.created.add(document.file_paths);
                 break;
             case FileState.UPDATED:
                 this.updated_num += 1;
-                this.updated.add(other.file_paths);
+                this.updated.add(document.file_paths);
                 break;
             case FileState.DELETED:
                 this.deleted_num += 1;
-                this.deleted.add(other.file_paths);
+                this.deleted.add(document.file_paths);
                 break;
             case FileState.UPDATED_METADATA:
                 this.updated_metadata_num += 1;
-                this.updated_metadata.add(other.file_paths);
+                this.updated_metadata.add(document.file_paths);
                 break;
             default:
                 break;
@@ -338,7 +413,8 @@ function formatLogDate(d: Date = new Date()): string {
 }
 
 function removeLogFilesInFolder(folderPath: string) {
-    if (!fs.existsSync(folderPath)) return;
+    if (!fs.existsSync(folderPath))
+        return;
 
     const files = fs.readdirSync(folderPath);
     for (const file of files) {
@@ -350,83 +426,8 @@ function removeLogFilesInFolder(folderPath: string) {
     }
 }
 
-export function introduceNewFile(document: FileSystemDocument, root_folder: string, last_update_date: Date | void): FileSystemDocument | void {
-    console.log(document.file_paths);
-    switch (document.extension) {
-        case 'docx':
-        case 'pdf':
 
-            return introduceContentFile(document, root_folder, last_update_date);
-
-            break;
-        case 'xlsx':
-            return introduceMetadataFile(document, root_folder);
-            break;
-        default:
-            break;
-    }
-}
-
-function introduceContentFile(document: FileSystemDocument, root_folder: string, last_update_date: Date | void): FileSystemDocument | void {
-    if (!document.content)
-        return
-
-    const filesystem_dir_path = `${root_folder}${COMPLETE_FILESYSTEM_PATH}${document.file_paths.system_path}`;
-    const filesystem_path_metadata = `${filesystem_dir_path}/${DETAILS_NAME}.json`;
-
-    const filesystem_sharepoint_dir_path = `${root_folder}${SHAREPOINT_COPY_PATH}${document.file_paths.sharepoint_path}`;
-    const filesystem_sharepoint_path = `${filesystem_sharepoint_dir_path}/${DETAILS_NAME}.json`;
-
-    const filesystem_path_final = `${filesystem_dir_path}/${CONTENT_NAME}.${document.extension}`;
-
-    fs.mkdirSync(filesystem_dir_path, { recursive: true });
-    fs.mkdirSync(filesystem_sharepoint_dir_path, { recursive: true });
-
-    let metadata_doc = FileSystemDocument.fromJson(`${filesystem_dir_path}/${DETAILS_NAME}.json`);
-    document.addMetadata(metadata_doc);
-    if (last_update_date && last_update_date.getTime() < document.last_update_date.getTime()) {
-        document.state = FileState.UPDATED;
-    } else {
-        document.state = FileState.CREATED;
-    }
-
-    fs.writeFileSync(filesystem_path_metadata, document.toJson(), { encoding: "utf-8" });
-    fs.writeFileSync(filesystem_path_final, document.content, { encoding: "utf-8" });
-
-    fs.writeFileSync(filesystem_sharepoint_path, document.toJson(), { encoding: "utf-8" });
-    return document;
-}
-
-function introduceMetadataFile(document: FileSystemDocument, root_folder: string): FileSystemDocument | void {
-    if (!document.content)
-        return;
-
-    const filesystem_dir_path = `${root_folder}${COMPLETE_FILESYSTEM_PATH}${document.file_paths.system_path}`;
-    const filesystem_path_metadata = `${filesystem_dir_path}/${DETAILS_NAME}.json`;
-
-    const filesystem_sharepoint_dir_path = `${root_folder}${SHAREPOINT_COPY_PATH}${document.file_paths.sharepoint_path}`;
-    const filesystem_sharepoint_path = `${filesystem_sharepoint_dir_path}/${DETAILS_NAME}.json`;
-
-    fs.mkdirSync(filesystem_dir_path, { recursive: true });
-    fs.mkdirSync(filesystem_sharepoint_dir_path, { recursive: true });
-
-    document.metadata = parseMetadata(document.content);
-
-    let content_doc = FileSystemDocument.fromJson(`${filesystem_dir_path}/${DETAILS_NAME}.json`);
-    if (content_doc) {
-        content_doc.addMetadata(document);
-    } else {
-        content_doc = document;
-    }
-    content_doc.state = FileState.UPDATED_METADATA;
-
-    fs.writeFileSync(filesystem_path_metadata, content_doc.toJson(), { encoding: "utf-8" });
-    fs.writeFileSync(filesystem_sharepoint_path, content_doc.toJson(), { encoding: "utf-8" });
-    return content_doc;
-
-}
-
-function parseMetadata(buffer: Buffer): Metadata {
+function excelToMetadata(buffer: Buffer): Metadata {
     const workbook = XLSX.read(buffer, { type: "buffer" });
     const sheet = workbook.Sheets[workbook.SheetNames[0]];
 
@@ -449,10 +450,8 @@ function parseMetadata(buffer: Buffer): Metadata {
             metadata.process_number = rawVal;
         } else if (norm.includes("relator")) {
             metadata.judge = rawVal;
-        } else if (norm === "data" || norm.includes("data")) {
-            console.log(rawVal);
-
-            const dt = parseDate(rawVal);
+        } else if (norm.includes("data")) {
+            const dt = parseExcelSerial(rawVal);
             if (dt)
                 metadata.date = dt;
         } else if (norm.includes("decis")) {
@@ -475,16 +474,19 @@ function parseMetadata(buffer: Buffer): Metadata {
     return metadata;
 }
 
-function parseDate(s: string): Date | undefined {
-    const m = s.trim().match(/^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{2,4})$/);
-    if (!m) return undefined;
+function parseExcelSerial(s: string | number): Date | undefined {
+    const n = typeof s === "number" ? s : Number(s);
+    if (!Number.isFinite(n)) return undefined;
 
-    const day = parseInt(m[1], 10);
-    const month = parseInt(m[2], 10) - 1;
-    const year = m[3].length === 2 ? 2000 + parseInt(m[3], 10) : parseInt(m[3], 10);
+    const epoch = Date.UTC(1899, 11, 31);
+    const whole = Math.floor(n);
+    const frac = n - whole;
+    const days = whole > 59 ? whole - 1 : whole;
+    const ms = days * 86400000 + Math.round(frac * 86400000);
 
-    return new Date(year, month, day);
+    return new Date(epoch + ms);
 }
+
 
 export function findLastUpdate(root_path: string, drive_name: string): string | void {
     const folder_path = `${root_path}${LOGS_PATH}/${drive_name}`;
