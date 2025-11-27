@@ -6,6 +6,8 @@ import { JurisprudenciaVersion } from '@stjiris/jurisprudencia-document';
 import { Client, PageCollection } from '@microsoft/microsoft-graph-client';
 import dotenv from 'dotenv';
 import { FileSystemUpdate } from "./filesystem";
+import { addJurisprudencia } from "./juris";
+import { client } from "./client";
 
 const FLAG_FULL_UPDATE = process.argv.some(arg => arg === "-f" || arg === "--full");
 
@@ -33,7 +35,7 @@ function getGraphClient(): Client {
     return initializeGraphClient(tenantId, clientId, clientSecret);
 }
 
-async function insertDrive() {
+async function insertDrive(): Promise<void | FileSystemUpdate> {
     const graphClient = getGraphClient();
     const site_id = envOrFail("SITE_ID");
     const drive_names = envOrFailArray("DRIVES");
@@ -53,7 +55,18 @@ async function insertDrive() {
         updated_metadata: 0
     }
     process.once("SIGINT", () => {
-        info.dateEnd = new Date();
+        update.date_end = new Date();
+        info = {
+            created: update.created_num,
+            dateEnd: update.date_end,
+            dateStart: update.date_start,
+            deleted: update.deleted_num,
+            skiped: 0,
+            soft: !FLAG_FULL_UPDATE,
+            target: JurisprudenciaVersion,
+            updated: update.updated_num,
+            updated_metadata: update.updated_metadata_num
+        }
         console.log("Terminado a pedido do utilizador");
         report(info).then(() => process.exit(0));
     })
@@ -66,13 +79,31 @@ async function insertDrive() {
     update.date_end = new Date();
     update.write(root_path);
 
-    info.dateEnd = new Date()
-    await report(info)
+    info = {
+        created: update.created_num,
+        dateEnd: update.date_end,
+        dateStart: update.date_start,
+        deleted: update.deleted_num,
+        skiped: 0,
+        soft: !FLAG_FULL_UPDATE,
+        target: JurisprudenciaVersion,
+        updated: update.updated_num,
+        updated_metadata: update.updated_metadata_num
+    }
+    try {
+        await report(info)
+    } catch (e) {
+        console.error(e);
+    }
+    return update;
 }
 
 async function main() {
     dotenv.config();
-    await insertDrive();
+    const update = await insertDrive();
+    if (!update)
+        return;
+    addJurisprudencia(update, envOrFail("LOCAL_ROOT"), client);
 }
 
 main().catch(e => console.error(e));

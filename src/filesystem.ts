@@ -13,8 +13,8 @@ const COMPLETE_FILESYSTEM_PATH = `${ACORDAOS_PATH}/FileSystem`
 const SHAREPOINT_COPY_PATH = `${ACORDAOS_PATH}/Sharepoint`
 const LOGS_PATH = "/Updates"
 
-const DETAILS_NAME = "Details"
-const CONTENT_NAME = "Content"
+const DETAILS_NAME = "Detalhes"
+const ORIGINAL_NAME = "Original"
 const UPDATE_NAME = "Update"
 
 export class FileSystemDocument {
@@ -136,7 +136,7 @@ export class FileSystemDocument {
         const filesystem_sharepoint_dir_path = `${root_folder}${SHAREPOINT_COPY_PATH}${this.file_paths.sharepoint_path}`;
         const filesystem_sharepoint_path = `${filesystem_sharepoint_dir_path}/${DETAILS_NAME}.json`;
 
-        const filesystem_path_final = `${filesystem_dir_path}/${CONTENT_NAME}.${this.extension}`;
+        const filesystem_path_final = `${filesystem_dir_path}/${ORIGINAL_NAME}.${this.extension}`;
 
         fs.mkdirSync(filesystem_dir_path, { recursive: true });
         fs.mkdirSync(filesystem_sharepoint_dir_path, { recursive: true });
@@ -206,9 +206,18 @@ export class FileSystemDocument {
             raw_json.file_paths?.system_path ?? "",
             raw_json.extension ?? ""
         )
+        doc.file_paths = raw_json.file_paths ?? doc.file_paths;
+
+        doc.drive_name = raw_json.drive_name ?? doc.drive_name;
+        doc.drive_id = raw_json.drive_id ?? doc.drive_id;
+        doc.sharepoint_id = raw_json.sharepoint_id ?? doc.sharepoint_id;
+        doc.sharepoint_path = raw_json.sharepoint_path ?? doc.sharepoint_path;
+        doc.sharepoint_url = raw_json.sharepoint_url ?? doc.sharepoint_url;
+        doc.xor_hash = raw_json.xor_hash ?? doc.xor_hash;
 
         doc.filesystem_date = toDate(raw_json.filesystem_date);
         doc.metadata = raw_json.metadata ?? {};
+        doc.state = raw_json.state ?? doc.state;
 
         return doc;
 
@@ -217,22 +226,6 @@ export class FileSystemDocument {
 }
 
 // TODO
-export function generateRelPath(sharepoint_path: string, drive_id: string, drive_name: string): string {
-    if (!sharepoint_path)
-        return `/${drive_name}`;
-
-    const marker = `/drives/${drive_id}`;
-    const start = sharepoint_path.indexOf(marker);
-
-    let rest = start >= 0 ? sharepoint_path.slice(start + marker.length) : sharepoint_path;
-
-    rest = rest.replace(/^\/drive\/root:|^\/root:|^:/, "");
-
-    if (!rest.startsWith("/"))
-        rest = "/" + rest;
-
-    return `/${drive_name}${rest}`;
-}
 
 
 export class FileSystemUpdate {
@@ -426,7 +419,6 @@ function removeLogFilesInFolder(folderPath: string) {
     }
 }
 
-
 function excelToMetadata(buffer: Buffer): Metadata {
     const workbook = XLSX.read(buffer, { type: "buffer" });
     const sheet = workbook.Sheets[workbook.SheetNames[0]];
@@ -439,7 +431,8 @@ function excelToMetadata(buffer: Buffer): Metadata {
         const key = row[0]?.toString().trim();
         const rawVal = row[1]?.toString().trim() ?? "";
 
-        if (!key) continue;
+        if (!key)
+            continue;
 
         const norm = key
             .normalize("NFD")
@@ -500,6 +493,41 @@ export function findLastUpdate(root_path: string, drive_name: string): string | 
             return fullPath;
         }
     }
-
     return;
+}
+
+export function loadContentFile(root_path: string, folder_path: string): string | void {
+    const actual_path = `${root_path}${COMPLETE_FILESYSTEM_PATH}${folder_path}`;
+    const entries = fs.readdirSync(actual_path);
+
+    for (const entry of entries) {
+        const fullPath = path.join(actual_path, entry);
+
+        if (!fs.statSync(fullPath).isFile())
+            continue;
+
+        const base = path.parse(entry).name;
+
+        if (base === ORIGINAL_NAME) {
+            return fullPath;
+        }
+    }
+}
+
+export function loadMetadataFile(root_path: string, folder_path: string): FileSystemDocument | void {
+    const actual_path = `${root_path}${COMPLETE_FILESYSTEM_PATH}${folder_path}`;
+    const entries = fs.readdirSync(actual_path);
+
+    for (const entry of entries) {
+        const fullPath = path.join(actual_path, entry);
+
+        if (!fs.statSync(fullPath).isFile())
+            continue;
+
+        const base = path.parse(entry).name;
+
+        if (base === DETAILS_NAME) {
+            return FileSystemDocument.fromJson(fullPath);
+        }
+    }
 }

@@ -1,7 +1,7 @@
 import { ClientSecretCredential } from '@azure/identity';
 import { Client, PageCollection } from '@microsoft/microsoft-graph-client';
 import { TokenCredentialAuthenticationProvider } from '@microsoft/microsoft-graph-client/authProviders/azureTokenCredentials';
-import { FileSystemDocument, FileSystemUpdate, findLastUpdate, generateRelPath } from './filesystem';
+import { FileSystemDocument, FileSystemUpdate, findLastUpdate } from './filesystem';
 
 const SECTIONTOAREA: Record<string, string> = {
 	"1ª Secção": "Área Cível",
@@ -12,6 +12,7 @@ const SECTIONTOAREA: Record<string, string> = {
 	"6ª Secção": "Área Cível",
 	"7ª Secção": "Área Cível",
 	"Contencioso": "Contencioso",
+	"Cnflitos": "Conflitos",
 };
 
 
@@ -89,10 +90,10 @@ async function updateDriveAux(client: Client, initialPathOrUrl: string, drive_na
 	return update;
 }
 
-async function retrieveSharepointDocuments(client: Client, resp: any, drive_name: string, drive_id: string, root_path: string, last_update_date: Date | undefined): Promise<FileSystemUpdate> {
+async function retrieveSharepointDocuments(client: Client, page_of_documents: any, drive_name: string, drive_id: string, root_path: string, last_update_date: Date | undefined): Promise<FileSystemUpdate> {
 
 	let update: FileSystemUpdate = new FileSystemUpdate();
-	for (const drive_item of resp.value) {
+	for (const drive_item of page_of_documents.value) {
 		if (drive_item.deleted)
 			continue;
 		if (drive_item.file) {
@@ -126,8 +127,9 @@ async function retrieveSharepointDocuments(client: Client, resp: any, drive_name
 				extension
 			);
 
-			filesystemDocument.addSharepointMetadata(drive_name, drive_id, sharepoint_id, sharepoint_path, sharepoint_path_rel, sharepoint_url, xor_hash, content);
+			filesystemDocument.addSharepointMetadata(drive_name, drive_id, sharepoint_id, sharepoint_path, `${sharepoint_path_rel}/${original_name}`, sharepoint_url, xor_hash, content);
 			filesystemDocument.addMetadata(area, date, section);
+			console.log(filesystemDocument.file_paths);
 			update.add_document(filesystemDocument.introduceNewFile(root_path, last_update_date));
 		}
 	}
@@ -175,4 +177,21 @@ function extractDataFromPath(path: string): { date?: Date, section?: string, are
 	}
 
 	return result;
+}
+
+function generateRelPath(sharepoint_path: string, drive_id: string, drive_name: string): string {
+	if (!sharepoint_path)
+		return `/${drive_name}`;
+
+	const marker = `/drives/${drive_id}`;
+	const start = sharepoint_path.indexOf(marker);
+
+	let rest = start >= 0 ? sharepoint_path.slice(start + marker.length) : sharepoint_path;
+
+	rest = rest.replace(/^\/drive\/root:|^\/root:|^:/, "");
+
+	if (!rest.startsWith("/"))
+		rest = "/" + rest;
+
+	return `/${drive_name}${rest}`;
 }
