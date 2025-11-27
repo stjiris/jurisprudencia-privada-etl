@@ -217,7 +217,11 @@ export class FileSystemDocument {
 
         doc.filesystem_date = toDate(raw_json.filesystem_date);
         doc.metadata = raw_json.metadata ?? {};
+        if (doc.metadata) {
+            doc.metadata.date = doc.metadata.date ? new Date(doc.metadata.date) : doc.creation_date;
+        }
         doc.state = raw_json.state ?? doc.state;
+
 
         return doc;
 
