@@ -71,7 +71,7 @@ export class FileSystemDocument {
 
     addMetadata(area?: string, date?: Date, section?: string, process_number?: string, decision?: string, descriptors?: string[], judge?: string, process_mean?: string): void {
         if (!this.metadata) {
-            this.metadata = { process_number, area, section, decision, descriptors, judge, process_mean };
+            this.metadata = { area, date, section, process_number, decision, descriptors, judge, process_mean };
             return;
         }
         this.metadata.area = this.metadata.area ?? area;

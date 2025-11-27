@@ -14,8 +14,10 @@ export async function addJurisprudencia(update: FileSystemUpdate, root_path: str
     let juris: IndexResponse[] = [];
     for (const document_path of update.created) {
         const response = await introduceJurisprudencia(root_path, document_path.system_path, client);
-        if (response)
+        if (response) {
+            console.log(response);
             juris.push(response);
+        }
     }
     return juris;
 }
