@@ -61,7 +61,7 @@ function createElasticSearchDocumentFromFileSystem(document: FileSystemDocument,
     let CONTENT: JurisprudenciaDocument["CONTENT"] = content;
     let numProc: JurisprudenciaDocument["Número de Processo"] = document.metadata.process_number ?? document.original_name;
 
-    let Data: JurisprudenciaDocument["Data"] = document.metadata?.date?.toISOString() || "01/01/1900";
+    let Data: JurisprudenciaDocument["Data"] = document.metadata?.date ? formatDateDDMMYYYY(document.metadata?.date) : "01/01/1900";
 
     let origin = document.sharepoint_id ? "STJ (Sharepoint)" : "Unknown";
     let obj: PartialJurisprudenciaDocument = {
@@ -111,4 +111,11 @@ function createElasticSearchDocumentFromFileSystem(document: FileSystemDocument,
     return obj;
 }
 
+function formatDateDDMMYYYY(date: Date): string {
+    const day = String(date.getDate()).padStart(2, "0");
+    const month = String(date.getMonth() + 1).padStart(2, "0");
+    const year = date.getFullYear();
+
+    return `${day}/${month}/${year}`;
+}
 
