@@ -64,8 +64,17 @@ function createElasticSearchDocumentFromFileSystem(document: FileSystemDocument,
     let numProc: JurisprudenciaDocument["Número de Processo"] = document.metadata.process_number ?? document.original_name;
 
     let Data: JurisprudenciaDocument["Data"] = document.metadata?.date ? formatDateDDMMYYYY(document.metadata?.date) : "01/01/1900";
-
     let origin = document.sharepoint_id ? "STJ (Sharepoint)" : "Unknown";
+
+    Original["Decisão Texto Integral"] = content.map(line => `<p><font>${line}</font><br>`).join('');
+    Original["Data"] = Data;
+    Original["Número de Processo"] = numProc;
+    Original["Fonte"] = origin;
+    Original["URL"] = document.sharepoint_url ?? "";
+    Original["Jurisprudência"] = "Simples";
+    Original["Número de Processo"] = numProc;
+    Original["Path"] = document.file_paths.system_path;
+
     let obj: PartialJurisprudenciaDocument = {
         "Original": Original,
         "CONTENT": CONTENT,
@@ -74,9 +83,9 @@ function createElasticSearchDocumentFromFileSystem(document: FileSystemDocument,
         "Fonte": origin,
         "URL": document.sharepoint_url,
         "Jurisprudência": { Index: ["Simples"], Original: ["Simples"], Show: ["Simples"] },
-        "STATE": "privado",
+        "STATE": "importação",
     }
-
+    obj.Sumário = "";
     obj.Texto = content.map(line => `<p><font>${line}</font><br>`).join('');
     if (document.metadata.descriptors && document.metadata.descriptors.length > 0) {
         obj.Descritores = {
@@ -101,6 +110,8 @@ function createElasticSearchDocumentFromFileSystem(document: FileSystemDocument,
         obj["Decisão"] = { Index: [document.metadata.decision], Original: [document.metadata.decision], Show: [document.metadata.decision] };
     }
 
+    obj["PATH"] = document.file_paths.system_path;
+
     obj["HASH"] = calculateHASH({
         ...obj,
         Original: obj.Original,
@@ -109,7 +120,8 @@ function createElasticSearchDocumentFromFileSystem(document: FileSystemDocument,
         Texto: obj.Texto || "",
     })
 
-    obj["UUID"] = calculateUUID(obj["HASH"])
+    obj["UUID"] = calculateUUID(obj["HASH"]);
+    console.log(obj["Número de Processo"]);
     return obj;
 }
 

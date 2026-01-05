@@ -16,7 +16,7 @@
     "@elastic/elasticsearch": "^8.9.0",
     "@microsoft/microsoft-graph-client": "^3.0.7",
     "@microsoft/microsoft-graph-types": "^2.40.0",
-    "@stjiris/jurisprudencia-document": "^11.1.4",
+    "@stjiris/jurisprudencia-document": "npm:@mdgf11/jurisprudencia-document@^13.0.7",
     "@types/nodemailer": "^6.4.13",
     "axios": "^1.13.1",
     "body-parser": "^2.2.0",

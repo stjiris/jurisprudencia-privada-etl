@@ -93,7 +93,13 @@ export const ConflictsProps: Record<JurisprudenciaDocumentExactKey | Jurispruden
             "Current": { type: "keyword" },
             "New": { type: "keyword" }
         }
-    }
+    },
+    PATH: {
+        properties: {
+            "Current": { type: "keyword" },
+            "New": { type: "keyword" }
+        }
+    },
 }
 
 const ConflictsVersion = "jurisprudencia-indexer-conflicts.2.0"

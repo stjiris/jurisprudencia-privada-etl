@@ -1,5 +1,3 @@
-import { raw } from "body-parser";
-import { Report } from "./report/report";
 import fs from "fs";
 import path from "path";
 import XLSX from "xlsx";
@@ -15,7 +13,6 @@ const LOGS_PATH = "/Updates"
 
 const DETAILS_NAME = "Detalhes"
 const ORIGINAL_NAME = "Original"
-const UPDATE_NAME = "Update"
 
 export class FileSystemDocument {
     // properties from sharepoint
@@ -229,9 +226,6 @@ export class FileSystemDocument {
 
 }
 
-// TODO
-
-
 export class FileSystemUpdate {
     constructor(
         public target_drives?: Set<string>,
@@ -261,7 +255,7 @@ export class FileSystemUpdate {
         });
     }
 
-    public toJson(): string {
+    toJson(): string {
         const obj = {
             target_drives: this.target_drives ? Array.from(this.target_drives) : null,
             date_start: this.date_start ? this.date_start.toISOString() : null,
@@ -289,13 +283,13 @@ export class FileSystemUpdate {
         if (!this.target_drives)
             return;
         for (const drive of this.target_drives) {
-            const updates_dir_path = `${root_path}${LOGS_PATH}/${drive}`;
+            const updates_dir_path = `${root_path}${LOGS_PATH}`;
             fs.mkdirSync(updates_dir_path, { recursive: true });
-            const updates_file_path = `${updates_dir_path}/${formatLogDate(this.date_start)}.json`;
+            const updates_file_path = `${updates_dir_path}/log_${formatDate(this.date_start)}.json`;
 
             const drive_dir_path = `${updates_dir_path}/All`
             fs.mkdirSync(drive_dir_path, { recursive: true });
-            const drive_file_path = `${drive_dir_path}/${formatLogDate(this.date_start)}.json`;
+            const drive_file_path = `${drive_dir_path}/log_${formatDate(this.date_start)}.json`;
 
             this.date_end = new Date();
 
@@ -404,9 +398,9 @@ export class FileSystemUpdate {
     }
 }
 
-function formatLogDate(d: Date = new Date()): string {
+function formatDate(d: Date = new Date()): string {
     const pad = (n: number) => n.toString().padStart(2, "0");
-    return `log_${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}-${pad(d.getHours())}-${pad(d.getMinutes())}-${pad(d.getSeconds())}`;
+    return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}_${pad(d.getHours())}-${pad(d.getMinutes())}-${pad(d.getSeconds())}`;
 }
 
 function removeLogFilesInFolder(folderPath: string) {
@@ -484,9 +478,8 @@ function parseExcelSerial(s: string | number): Date | undefined {
     return new Date(epoch + ms);
 }
 
-
 export function findLastUpdate(root_path: string, drive_name: string): string | void {
-    const folder_path = `${root_path}${LOGS_PATH}/${drive_name}`;
+    const folder_path = `${root_path}${LOGS_PATH}`;
     if (!fs.existsSync(folder_path))
         return;
 
@@ -534,4 +527,12 @@ export function loadMetadataFile(root_path: string, folder_path: string): FileSy
             return FileSystemDocument.fromJson(fullPath);
         }
     }
+}
+
+export function updateContentFile(root_path: string, folder_path: string, buffer: Buffer): void {
+    const update = new FileSystemUpdate();
+    const actual_path = `${root_path}${COMPLETE_FILESYSTEM_PATH}${folder_path}`;
+    const actual_update_path = `${actual_path}/${formatDate(update.date_start)}`;
+    fs.mkdirSync(actual_update_path, { recursive: true });
+
 }
