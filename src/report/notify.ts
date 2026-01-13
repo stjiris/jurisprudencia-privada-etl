@@ -1,6 +1,11 @@
 import { createTransport } from "nodemailer";
 import { Report } from "./report";
-import { envOrFail } from "../aux";
+
+export function envOrFail(name: string) {
+    const value = process.env[name];
+    if (!value) throw new Error(`Missing environment variable ${name}`);
+    return value;
+}
 
 export function getMailConfig() {
     return {
@@ -36,7 +41,7 @@ export function notify(report: Report) {
         to: config.to,
         subject: `Relatório de atualização da "${report.target}"`,
         html: `
-<p>Relatório de atualização da "${report.target}" em modo <b>${report.soft ? "rápido" : "completo"}</b>.
+<p>Relatório de atualização da "${report.target}" em modo <b>${"completo"}</b>.
 Iniciado em ${report.dateStart.toISOString()} e terminado em ${report.dateEnd.toISOString()} (duração: ${report.dateEnd.getTime() - report.dateStart.getTime()}ms).</p>
 <table>
     <tr>
@@ -54,10 +59,6 @@ Iniciado em ${report.dateStart.toISOString()} e terminado em ${report.dateEnd.to
     <tr>
         <td>Eliminados</td>
         <td>${report.deleted}</td>
-    </tr>
-    <tr>
-        <td>Ignorados</td>
-        <td>${report.skiped}</td>
     </tr>
 </table>
 `   }, (err, info) => {

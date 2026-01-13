@@ -1,5 +1,5 @@
 import { MappingProperty } from "@elastic/elasticsearch/lib/api/types";
-import { client } from "../client";
+import { client } from "../juris";
 import { JurisprudenciaDocumentDateKey, JurisprudenciaDocumentExactKey } from "@stjiris/jurisprudencia-document";
 import { notify } from "./notify";
 
@@ -8,11 +8,8 @@ export type Report = {
     dateStart: Date,
     created: number,
     updated: number,
-    updated_metadata: number,
     deleted: number, // On full update might be nice to check if all dgsi we have are still on dgsi
-    skiped: number,
     dateEnd: Date,
-    soft: boolean,
 }
 
 export const ReportProps: Record<keyof Report, MappingProperty> = {
@@ -21,10 +18,7 @@ export const ReportProps: Record<keyof Report, MappingProperty> = {
     dateEnd: { type: "date" },
     created: { type: "float" },
     updated: { type: "float" },
-    updated_metadata: { type: "float" },
     deleted: { type: "float" },
-    skiped: { type: "float" },
-    soft: { type: "boolean" }
 }
 
 const ReportVersion = "jurisprudencia-indexer-report.2.0"
