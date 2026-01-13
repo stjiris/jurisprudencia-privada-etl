@@ -1,6 +1,6 @@
 import { JurisprudenciaVersion } from "@stjiris/jurisprudencia-document";
-import { FilesystemDocument } from "./filesystem";
 import { Client } from "@elastic/elasticsearch";
+import { FilesystemDocument } from "@stjiris/filesystem-lib";
 
 // todo test
 export const client = new Client({ node: process.env.ES_URL || "http://localhost:9200", auth: { username: process.env.ES_USER || "", password: process.env.ES_PASS || "" } });

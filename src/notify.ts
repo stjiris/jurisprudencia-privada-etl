@@ -1,5 +1,13 @@
 import { createTransport } from "nodemailer";
-import { Report } from "./report";
+
+export type Report = {
+    target: string,
+    dateStart: Date,
+    created: number,
+    updated: number,
+    deleted: number, // On full update might be nice to check if all dgsi we have are still on dgsi
+    dateEnd: Date,
+}
 
 export function envOrFail(name: string) {
     const value = process.env[name];

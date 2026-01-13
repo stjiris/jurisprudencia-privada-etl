@@ -1,5 +1,5 @@
 import { JurisprudenciaVersion } from '@stjiris/jurisprudencia-document';
-import { updateDrives } from './sharepoint';
+import { updateDrives } from './sharepoint.js';
 
 const FLAG_HELP = process.argv.some(arg => arg === "-h" || arg === "--help");
 

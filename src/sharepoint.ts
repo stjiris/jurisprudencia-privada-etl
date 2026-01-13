@@ -1,14 +1,14 @@
 import { Client } from "@microsoft/microsoft-graph-client";
-import { Report, report } from "./report/report";
-import { addFileToUpdate, ContentType, createJurisprudenciaDocument, Date_Area_Section, FilesystemDocument, FilesystemUpdate, generateFilePath, isSupportedExtension, loadLastFilesystemUpdate, logDocumentProcessingError, Retrievable_Metadata, Sharepoint_Metadata, Supported_Content_Extensions, SupportedUpdateSources, writeFilesystemDocument, writeFilesystemUpdate } from "./filesystem";
+import { Report } from "./notify.js";
+import { addFileToUpdate, ContentType, createJurisprudenciaDocument, Date_Area_Section, FilesystemDocument, FilesystemUpdate, generateFilePath, isSupportedExtension, loadLastFilesystemUpdate, logDocumentProcessingError, Retrievable_Metadata, Sharepoint_Metadata, Supported_Content_Extensions, SupportedUpdateSources, writeFilesystemDocument, writeFilesystemUpdate } from "@stjiris/filesystem-lib";
 import { ClientSecretCredential } from "@azure/identity";
-import { TokenCredentialAuthenticationProvider } from "@microsoft/microsoft-graph-client/authProviders/azureTokenCredentials";
+import { TokenCredentialAuthenticationProvider } from "@microsoft/microsoft-graph-client/authProviders/azureTokenCredentials/index.js";
 import { JurisprudenciaVersion, PartialJurisprudenciaDocument } from "@stjiris/jurisprudencia-document";
-import { indexJurisDocument } from "./juris";
+import { indexJurisDocument } from "./juris.js";
 import dotenv from 'dotenv';
 import path from "path";
-import * as pdfjsLib from "pdfjs-dist/legacy/build/pdf.mjs";
 import { spawn } from 'child_process';
+import { notify } from "./notify.js";
 
 dotenv.config();
 const tenantId = envOrFail('TENANT_ID');
@@ -29,6 +29,18 @@ const SECTIONTOAREA: Record<string, string> = {
     "5ª Secção": "Área Criminal",
     "6ª Secção": "Área Cível",
     "7ª Secção": "Área Cível",
+    "Contencioso": "Contencioso",
+    "Cnflitos": "Conflitos",
+};
+
+const SECTIONTOSECTION: Record<string, string> = {
+    "1ª Secção": "1ª Secção (Cível)",
+    "2ª Secção": "2ª Secção (Cível)",
+    "3ª Secção": "3ª Secção (Criminal)",
+    "4ª Secção": "4ª Secção (Social)",
+    "5ª Secção": "5ª Secção (Criminal)",
+    "6ª Secção": "6ª Secção (Cível)",
+    "7ª Secção": "7ª Secção (Cível)",
     "Contencioso": "Contencioso",
     "Cnflitos": "Conflitos",
 };
@@ -114,7 +126,7 @@ async function updateDrive(drive_name: string, drive_id: string, lastUpdate: Fil
                 }
 
                 // write the document in the juris platform if it is available
-                //indexJurisDocument(filesystem_document);
+                indexJurisDocument(filesystem_document);
 
                 // write the document to the system
                 writeFilesystemDocument(filesystem_document);
@@ -124,7 +136,7 @@ async function updateDrive(drive_name: string, drive_id: string, lastUpdate: Fil
             } catch (err: unknown) {
                 if (err instanceof Error) {
                     // this should log the exact issue with the file
-                    let file_name = (drive_item?.parentReference.path ?? '') + (drive_item?.name ?? '');
+                    let file_name = (drive_item?.parentReference.path ?? '') + '/' + (drive_item?.name ?? '');
                     logDocumentProcessingError(update, `Error processessing file ${file_name}, number ${i} of drive ${drive_name}: ` + err.message);
                 }
             }
@@ -149,7 +161,7 @@ async function updateDrive(drive_name: string, drive_id: string, lastUpdate: Fil
     terminateUpdate(update, `Drive ${drive_name} updated.`);
 }
 
-function getDateAreaSection(sharepoint_metadata: Sharepoint_Metadata): { file_date: Date, area: string, section: string } {
+function getDateAreaSection(sharepoint_metadata: Sharepoint_Metadata): Date_Area_Section {
     let file_date: Date | undefined = undefined;
     let area: string | undefined = undefined;
     let section: string | undefined = undefined;
@@ -165,7 +177,7 @@ function getDateAreaSection(sharepoint_metadata: Sharepoint_Metadata): { file_da
     const lower = sharepoint_metadata.sharepoint_path_rel.toLowerCase();
     for (const key of Object.keys(SECTIONTOAREA)) {
         if (lower.includes(key.toLowerCase())) {
-            section = key;
+            section = SECTIONTOSECTION[key];
             area = SECTIONTOAREA[key];
             break;
         }
@@ -288,8 +300,8 @@ async function parseMetadataTable(buffer: Buffer): Promise<Row[]> {
 }
 
 function getRetrievableMetadata(retrievable_metadata_table: Retrievable_Metadata_Table, sharepoint_metadata: Sharepoint_Metadata): Retrievable_Metadata {
-    const original_file_name: string = path.basename(sharepoint_metadata.sharepoint_path_rel).replace("-", "/");
-    const matchedKey = Object.keys(retrievable_metadata_table).find(k => original_file_name.includes(k));
+    const original_file_name: string = path.basename(sharepoint_metadata.sharepoint_path_rel).replace(/-/g, "/");
+    const matchedKey = Object.keys(retrievable_metadata_table).find(k => original_file_name.includes(k.replace(/-/g, "/")));
     if (!matchedKey) {
         throw new Error("Metadata não encontrada dentro da tabela correspondente.");
     }
@@ -310,7 +322,7 @@ async function terminateUpdate(update: FilesystemUpdate, message: string): Promi
     try {
         writeFilesystemUpdate(update);
         console.log(info);
-        // report(info)
+        notify(info)
     } catch (e) {
         console.error(e);
     }
