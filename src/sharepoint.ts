@@ -1,5 +1,4 @@
 import { Client } from "@microsoft/microsoft-graph-client";
-import { Report } from "./notify.js";
 import { addFileToUpdate, ContentType, createJurisprudenciaDocument, Date_Area_Section, FilesystemDocument, FilesystemUpdate, generateFilePath, isSupportedExtension, loadLastFilesystemUpdate, logDocumentProcessingError, Retrievable_Metadata, Sharepoint_Metadata, Supported_Content_Extensions, SupportedUpdateSources, writeFilesystemDocument, writeFilesystemUpdate } from "@stjiris/filesystem-lib";
 import { ClientSecretCredential } from "@azure/identity";
 import { TokenCredentialAuthenticationProvider } from "@microsoft/microsoft-graph-client/authProviders/azureTokenCredentials/index.js";
@@ -8,7 +7,7 @@ import { indexJurisDocument } from "./juris.js";
 import dotenv from 'dotenv';
 import path from "path";
 import { spawn } from 'child_process';
-import { notify } from "./notify.js";
+import { Report, notify } from "./notify.js";
 
 dotenv.config();
 const tenantId = envOrFail('TENANT_ID');
@@ -114,7 +113,7 @@ async function updateDrive(drive_name: string, drive_id: string, lastUpdate: Fil
 
                 // if there is enough metadata associated with the document, then it is inserted into the filesystem
                 // otherwise it's just made a copy that is stored in the sharepoint copy, could be useful for backups idk
-                const file_path: string = generateFilePath(date_area_section, retrievable_metadata);
+                const file_path: string = generateFilePath(jurisprudencia_document);
 
                 const filesystem_document: FilesystemDocument = {
                     creation_date,
@@ -322,7 +321,10 @@ async function terminateUpdate(update: FilesystemUpdate, message: string): Promi
     try {
         writeFilesystemUpdate(update);
         console.log(info);
-        notify(info)
+        if (info.created === 0 && info.deleted === 0 && info.updated === 0) {
+            return;
+        }
+        //notify(info)
     } catch (e) {
         console.error(e);
     }

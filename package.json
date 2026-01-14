@@ -17,7 +17,7 @@
     "@mdgf11/filesystem-lib": "^2.0.9",
     "@microsoft/microsoft-graph-client": "^3.0.7",
     "@microsoft/microsoft-graph-types": "^2.40.0",
-    "@stjiris/filesystem-lib": "npm:@mdgf11/filesystem-lib@^2.0.12",
+    "@stjiris/filesystem-lib": "npm:@mdgf11/filesystem-lib@^2.0.14",
     "@stjiris/jurisprudencia-document": "npm:@mdgf11/jurisprudencia-document@^13.1.0",
     "@types/nodemailer": "^6.4.13",
     "axios": "^1.13.1",
