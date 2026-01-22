@@ -7,6 +7,7 @@ import { allLinks } from './crawler.js';
 
 dotenv.config();
 
+const FLAG_FULL_UPDATE = process.argv.some(arg => arg === "-f" || arg === "--full");
 const FLAG_HELP = process.argv.some(arg => arg === "-h" || arg === "--help");
 
 function showHelp(code: number, error?: string) {
@@ -25,7 +26,7 @@ function showHelp(code: number, error?: string) {
 async function main() {
     if (FLAG_HELP)
         return showHelp(0);
-    const flag_full_update = process.env['FLAG_FULL_DGSI_UPDATE'] === "true"
+    const flag_full_update = process.env['FLAG_FULL_DGSI_UPDATE'] === "true" || FLAG_FULL_UPDATE
     let existsR = await client.indices.exists({ index: JurisprudenciaVersion }, { ignore: [404] });
     if (!existsR) {
         return showHelp(1, `${JurisprudenciaVersion} not found`);
