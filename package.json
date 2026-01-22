@@ -2,11 +2,13 @@
   "name": "jurisprudencia-etl",
   "version": "0.0.0",
   "description": "",
-  "main": "index.js",
+  "main": "sharepoint/index.js",
   "scripts": {
     "build": "tsc",
-    "run": "node dist/index.js",
-    "start": "npm run build && npm run run"
+    "run_sharepoint": "node dist/sharepoint/index.js",
+    "start_sharepoint": "npm run build && npm run run_sharepoint",
+    "run_dgsi": "node dist/dgsi/index.js",
+    "start_dgsi": "npm run build && npm run run_dgsi"
   },
   "type": "module",
   "keywords": [],
@@ -17,8 +19,8 @@
     "@mdgf11/filesystem-lib": "^2.0.9",
     "@microsoft/microsoft-graph-client": "^3.0.7",
     "@microsoft/microsoft-graph-types": "^2.40.0",
-    "@stjiris/filesystem-lib": "npm:@mdgf11/filesystem-lib@^2.0.14",
-    "@stjiris/jurisprudencia-document": "npm:@mdgf11/jurisprudencia-document@^13.1.0",
+    "@stjiris/filesystem-lib": "npm:@mdgf11/filesystem-lib@^2.2.6",
+    "@stjiris/jurisprudencia-document": "npm:@mdgf11/jurisprudencia-document@^13.2.4",
     "@types/nodemailer": "^6.4.13",
     "axios": "^1.13.1",
     "body-parser": "^2.2.0",

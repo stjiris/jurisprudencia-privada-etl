@@ -2,12 +2,13 @@ import { Client } from "@microsoft/microsoft-graph-client";
 import { addFileToUpdate, ContentType, createJurisprudenciaDocument, Date_Area_Section, FilesystemDocument, FilesystemUpdate, generateFilePath, isSupportedExtension, loadLastFilesystemUpdate, logDocumentProcessingError, Retrievable_Metadata, Sharepoint_Metadata, Supported_Content_Extensions, SupportedUpdateSources, writeFilesystemDocument, writeFilesystemUpdate } from "@stjiris/filesystem-lib";
 import { ClientSecretCredential } from "@azure/identity";
 import { TokenCredentialAuthenticationProvider } from "@microsoft/microsoft-graph-client/authProviders/azureTokenCredentials/index.js";
-import { JurisprudenciaVersion, PartialJurisprudenciaDocument } from "@stjiris/jurisprudencia-document";
-import { indexJurisDocument } from "./juris.js";
+import { PartialJurisprudenciaDocument } from "@stjiris/jurisprudencia-document";
+import { updateJurisDocument } from "../juris.js";
 import dotenv from 'dotenv';
 import path from "path";
 import { spawn } from 'child_process';
-import { Report, notify } from "./notify.js";
+import { estypes } from "@elastic/elasticsearch";
+import { terminateUpdate } from "../aux.js";
 
 dotenv.config();
 const tenantId = envOrFail('TENANT_ID');
@@ -15,7 +16,7 @@ const clientId = envOrFail('CLIENT_ID');
 const clientSecret = envOrFail('CLIENT_SECRET');
 const site_id = envOrFail("SITE_ID");
 const drive_names = process.env['DRIVES'] || ["Anonimização"];
-const pythonScriptPath = "src/pdf_parser.py";
+const pythonScriptPath = "src/sharepoint/pdf_parser.py";
 const client = Client.initWithMiddleware({ authProvider: new TokenCredentialAuthenticationProvider(new ClientSecretCredential(tenantId, clientId, clientSecret), { scopes: ['https://graph.microsoft.com/.default'] }) });
 
 type Retrievable_Metadata_Table = Record<string, Retrievable_Metadata>;
@@ -45,12 +46,25 @@ const SECTIONTOSECTION: Record<string, string> = {
 };
 
 export async function updateDrives() {
-    const last_update: FilesystemUpdate = loadLastFilesystemUpdate();
+    const last_update: FilesystemUpdate = loadLastFilesystemUpdate("STJ (Sharepoint)");
     const drive_id_names = await getDrivesIdNames();
 
     for (const [drive_name, drive_id] of Object.entries(drive_id_names)) {
         await updateDrive(drive_name, drive_id, last_update);
     }
+}
+
+async function getDrivesIdNames(): Promise<Record<string, string>> {
+    const result = await client.api(`/sites/${site_id}/drives`).select("id,name").get();
+    type Drive = { id: string; name: string };
+    const all_drives = (result.value ?? []) as Array<Drive>;
+    const drives = all_drives.filter((d) => d && d.name && d.id && drive_names.includes(d.name));
+    const drives_dict = drives.reduce<Record<string, string>>((acc, drive) => {
+        if (drive.name) acc[drive.name] = drive.id;
+        return acc;
+    }, {});
+
+    return drives_dict;
 }
 
 async function updateDrive(drive_name: string, drive_id: string, lastUpdate: FilesystemUpdate): Promise<void> {
@@ -84,8 +98,8 @@ async function updateDrive(drive_name: string, drive_id: string, lastUpdate: Fil
             if (!drive_item.file) {
                 continue;
             }
+
             try {
-                i += 1;
                 // read sharepoint exclusive info
                 const sharepoint_metadata: Sharepoint_Metadata = readSharepoint_Metadata(drive_item, drive_name, drive_id);
 
@@ -104,7 +118,9 @@ async function updateDrive(drive_name: string, drive_id: string, lastUpdate: Fil
 
                 // retrieves actual metadata from sharepoint documents
                 const retrievable_metadata: Retrievable_Metadata = getRetrievableMetadata(retrievable_metadata_tables[path.dirname(sharepoint_metadata.sharepoint_path_rel)], sharepoint_metadata);
-
+                if (normalizeString(path.basename(sharepoint_metadata.sharepoint_path_rel)).includes(normalizeString("Sumário"))) {
+                    retrievable_metadata.process_mean.push("Sumário");
+                }
                 // retrieves actual decision content
                 const content: ContentType[] = await retrieveSharepointContent(sharepoint_metadata);
 
@@ -124,13 +140,15 @@ async function updateDrive(drive_name: string, drive_id: string, lastUpdate: Fil
                     sharepoint_metadata
                 }
 
+                let r: estypes.WriteResponseBase | undefined = undefined;
+
                 // write the document in the juris platform if it is available
-                indexJurisDocument(filesystem_document);
-
-                // write the document to the system
-                writeFilesystemDocument(filesystem_document);
-                addFileToUpdate(update, filesystem_document);
-
+                r = await updateJurisDocument(filesystem_document);
+                if (r?.result === "created") {
+                    // write the document to the system
+                    writeFilesystemDocument(filesystem_document);
+                    addFileToUpdate(update, filesystem_document);
+                }
 
             } catch (err: unknown) {
                 if (err instanceof Error) {
@@ -188,18 +206,7 @@ function getDateAreaSection(sharepoint_metadata: Sharepoint_Metadata): Date_Area
     return { file_date, area, section };
 }
 
-async function getDrivesIdNames(): Promise<Record<string, string>> {
-    const result = await client.api(`/sites/${site_id}/drives`).select("id,name").get();
-    type Drive = { id: string; name: string };
-    const all_drives = (result.value ?? []) as Array<Drive>;
-    const drives = all_drives.filter((d) => d && d.name && d.id && drive_names.includes(d.name));
-    const drives_dict = drives.reduce<Record<string, string>>((acc, drive) => {
-        if (drive.name) acc[drive.name] = drive.id;
-        return acc;
-    }, {});
-
-    return drives_dict;
-}
+type Row = Record<string, string>;
 
 async function retrieveSharepointTable(sharepoint_metadata: Sharepoint_Metadata): Promise<Retrievable_Metadata_Table> {
     const response = await client.api(`/drives/${sharepoint_metadata.drive_id}/items/${sharepoint_metadata.parent_sharepoint_id}/children`).get();
@@ -233,15 +240,13 @@ async function retrieveSharepointTable(sharepoint_metadata: Sharepoint_Metadata)
             if (!key)
                 return acc;
 
-            acc[key] = { process_number: row["Processo"], judge: row["Relator"], process_mean: row['Espécie'], decision: row['Decisão'] };
+            acc[key] = { process_number: row["Processo"], judge: row["Relator"], process_mean: [row['Espécie']], decision: row['Decisão'] };
             return acc;
         },
         {} as Retrievable_Metadata_Table
     );
     return table;
 }
-
-type Row = Record<string, string>;
 
 async function parseMetadataTable(buffer: Buffer): Promise<Row[]> {
     return new Promise((resolve, reject) => {
@@ -307,29 +312,6 @@ function getRetrievableMetadata(retrievable_metadata_table: Retrievable_Metadata
     return retrievable_metadata_table[matchedKey];
 }
 
-async function terminateUpdate(update: FilesystemUpdate, message: string): Promise<void> {
-    update.date_end = new Date();
-    const info: Report = {
-        dateStart: update.date_start,
-        dateEnd: update.date_end,
-        created: update.created_num || 0,
-        deleted: update.deleted_num || 0,
-        updated: update.updated_num || 0,
-        target: JurisprudenciaVersion,
-    }
-    console.log(message);
-    try {
-        writeFilesystemUpdate(update);
-        console.log(info);
-        if (info.created === 0 && info.deleted === 0 && info.updated === 0) {
-            return;
-        }
-        //notify(info)
-    } catch (e) {
-        console.error(e);
-    }
-}
-
 function readSharepoint_Metadata(drive_item: any, drive_name: string, drive_id: string): Sharepoint_Metadata {
     if (drive_item.id === null || drive_item.id === undefined) {
         throw new Error("Missing drive_item.id");
@@ -378,7 +360,6 @@ export function getSupportedExtension(filename: string): Supported_Content_Exten
     return ext;
 }
 
-
 function generateRelPath(sharepoint_path: string, drive_id: string, drive_name: string): string {
     if (!sharepoint_path)
         return `/${drive_name}`;
@@ -426,4 +407,8 @@ function envOrFail(name: string) {
 function normalizeGraphUrlToPath(url: string): string {
     if (url.startsWith("/")) return url;
     return url.replace(/^https?:\/\/graph\.microsoft\.com(\/v1\.0|\/beta)?/, "");
+}
+
+function normalizeString(str: string): string {
+    return str.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
 }
