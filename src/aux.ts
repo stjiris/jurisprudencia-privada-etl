@@ -33,9 +33,6 @@ export async function terminateUpdate(update: FilesystemUpdate, message: string,
     console.log(message);
     try {
         writeFilesystemUpdate(update, source);
-        if (info.created === 0 && info.deleted === 0 && info.updated === 0) {
-            return;
-        }
         console.log(info);
         report(info)
     } catch (e) {
