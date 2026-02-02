@@ -34,7 +34,7 @@ async function main() {
     let update: FilesystemUpdate = { updateSource: "DGSI", date_start: new Date(), file_errors: [] };
 
     process.once("SIGINT", () => {
-        terminateUpdate(update, `Update terminated by user.`).then(() => process.exit(0));
+        terminateUpdate(update, `Update terminated by user.`, "DGSI").then(() => process.exit(0));
     });
 
     for await (let l of allLinks()) {
@@ -58,7 +58,7 @@ async function main() {
         }
     }
 
-    terminateUpdate(update, "Finished DGSI update.")
+    terminateUpdate(update, "Finished DGSI update.", "DGSI")
 
 }
 

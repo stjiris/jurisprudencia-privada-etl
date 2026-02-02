@@ -1,4 +1,4 @@
-import { FilesystemUpdate, writeFilesystemUpdate } from "@stjiris/filesystem-lib";
+import { FilesystemUpdate, SupportedUpdateSources, writeFilesystemUpdate } from "@stjiris/filesystem-lib";
 import { JSDOM } from "jsdom";
 import { report, Report } from "./report/report.js";
 import { JurisprudenciaVersion } from "@stjiris/jurisprudencia-document";
@@ -20,7 +20,7 @@ export async function JSDOMfromURL(url: string, retries: number = 10) {
     throw new Error(`Failed to fetch ${url}`);
 }
 
-export async function terminateUpdate(update: FilesystemUpdate, message: string): Promise<void> {
+export async function terminateUpdate(update: FilesystemUpdate, message: string, source: SupportedUpdateSources): Promise<void> {
     update.date_end = new Date();
     const info: Report = {
         dateStart: update.date_start,
@@ -32,7 +32,7 @@ export async function terminateUpdate(update: FilesystemUpdate, message: string)
     }
     console.log(message);
     try {
-        writeFilesystemUpdate(update, "STJ (Sharepoint)");
+        writeFilesystemUpdate(update, source);
         if (info.created === 0 && info.deleted === 0 && info.updated === 0) {
             return;
         }

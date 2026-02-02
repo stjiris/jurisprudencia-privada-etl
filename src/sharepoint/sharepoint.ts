@@ -70,7 +70,7 @@ async function getDrivesIdNames(): Promise<Record<string, string>> {
 async function updateDrive(drive_name: string, drive_id: string, lastUpdate: FilesystemUpdate): Promise<void> {
     console.log(drive_name);
     process.once("SIGINT", () => {
-        terminateUpdate(update, `Update terminated by user.`).then(() => process.exit(0));
+        terminateUpdate(update, `Update terminated by user.`, "STJ (Sharepoint)").then(() => process.exit(0));
     });
 
     // update initialization
@@ -175,7 +175,7 @@ async function updateDrive(drive_name: string, drive_id: string, lastUpdate: Fil
         throw new Error("Update page doesn't have next or delta page.");
     }
 
-    terminateUpdate(update, `Drive ${drive_name} updated.`);
+    terminateUpdate(update, `Drive ${drive_name} updated.`, "STJ (Sharepoint)");
 }
 
 function getDateAreaSection(sharepoint_metadata: Sharepoint_Metadata): Date_Area_Section {
