@@ -44,17 +44,17 @@ async function main() {
             doc = await updateJurisprudenciaDocumentFromURL(id, l);
             if (!doc)
                 continue;
-            if (!update.created_num)
-                update.created_num = 0;
-            update.created_num++;
+            if (!update.updated_num)
+                update.updated_num = 0;
+            update.updated_num++;
         }
         else {
             doc = await indexJurisprudenciaDocumentFromURL(l);
             if (!doc)
                 continue;
-            if (!update.updated_num)
-                update.updated_num = 0;
-            update.updated_num++;
+            if (!update.created_num)
+                update.created_num = 0;
+            update.created_num++;
         }
     }
 
