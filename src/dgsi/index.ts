@@ -28,6 +28,7 @@ async function main() {
     if (FLAG_HELP)
         return showHelp(0);
     const flag_full_update = process.env['FLAG_FULL_DGSI_UPDATE'] === "true" || FLAG_FULL_UPDATE
+    console.log(flag_full_update);
     let existsR = await client.indices.exists({ index: JurisprudenciaVersion }, { ignore: [404] });
     if (!existsR) {
         return showHelp(1, `${JurisprudenciaVersion} not found`);
@@ -37,8 +38,10 @@ async function main() {
     process.once("SIGINT", () => {
         terminateUpdate(update, `Update terminated by user.`, "DGSI").then(() => process.exit(0));
     });
-
+    let i = 0;
     for await (let l of allLinks()) {
+        i++;
+        console.log("Processing link nr: ", i);
         let id = await indexedUrlId(l);
         let doc: PartialJurisprudenciaDocument | undefined = undefined;
         if (id && flag_full_update) {

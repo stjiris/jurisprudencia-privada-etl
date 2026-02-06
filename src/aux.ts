@@ -40,7 +40,6 @@ export async function terminateUpdate(update: FilesystemUpdate, message: string,
     }
 }
 
-
 export async function createJurisprudenciaDocument(retrievable_Metadata: Retrievable_Metadata, contents: ContentType[], date_area_section: Date_Area_Section, sharepoint_metadata?: Sharepoint_Metadata): Promise<PartialJurisprudenciaDocument> {
     if (!retrievable_Metadata) {
         throw new Error("Missing metadata.");

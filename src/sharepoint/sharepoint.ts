@@ -162,7 +162,7 @@ async function updateDrive(drive_name: string, drive_id: string, lastUpdate: Fil
 
         }
         // this is just a counter of all files seen in pages
-        //console.log("i: ", i);jurisprudencia_document
+        console.log("Files processed as seen: ", i);
 
         if (update.delta_link) {
             update.next_link = undefined;
