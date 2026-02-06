@@ -1,5 +1,5 @@
 import { Client } from "@microsoft/microsoft-graph-client";
-import { addFileToUpdate, ContentType, createJurisprudenciaDocument, Date_Area_Section, FilesystemDocument, FilesystemUpdate, generateFilePath, isSupportedExtension, loadLastFilesystemUpdate, logDocumentProcessingError, Retrievable_Metadata, Sharepoint_Metadata, Supported_Content_Extensions, SupportedUpdateSources, writeFilesystemDocument, writeFilesystemUpdate } from "@stjiris/filesystem-lib";
+import { addFileToUpdate, ContentType, Date_Area_Section, FilesystemDocument, FilesystemUpdate, generateFilePath, isSupportedExtension, loadLastFilesystemUpdate, logDocumentProcessingError, Retrievable_Metadata, Sharepoint_Metadata, Supported_Content_Extensions, SupportedUpdateSources, writeFilesystemDocument, writeFilesystemUpdate } from "@stjiris/filesystem-lib";
 import { ClientSecretCredential } from "@azure/identity";
 import { TokenCredentialAuthenticationProvider } from "@microsoft/microsoft-graph-client/authProviders/azureTokenCredentials/index.js";
 import { PartialJurisprudenciaDocument } from "@stjiris/jurisprudencia-document";
@@ -8,7 +8,7 @@ import dotenv from 'dotenv';
 import path from "path";
 import { spawn } from 'child_process';
 import { estypes } from "@elastic/elasticsearch";
-import { terminateUpdate } from "../aux.js";
+import { createJurisprudenciaDocument, terminateUpdate } from "../aux.js";
 
 dotenv.config();
 const tenantId = envOrFail('TENANT_ID');
@@ -125,11 +125,13 @@ async function updateDrive(drive_name: string, drive_id: string, lastUpdate: Fil
                 const content: ContentType[] = await retrieveSharepointContent(sharepoint_metadata);
 
                 // creates jurisprudencia document for indexing later and to store metadata in a standard way
-                const jurisprudencia_document: PartialJurisprudenciaDocument = await createJurisprudenciaDocument(retrievable_metadata, content, date_area_section, sharepoint_metadata);
+                const jurisprudencia_document_original: PartialJurisprudenciaDocument = await createJurisprudenciaDocument(retrievable_metadata, content, date_area_section, sharepoint_metadata);
 
                 // if there is enough metadata associated with the document, then it is inserted into the filesystem
                 // otherwise it's just made a copy that is stored in the sharepoint copy, could be useful for backups idk
-                const file_path: string = generateFilePath(jurisprudencia_document);
+                const file_path: string = generateFilePath(jurisprudencia_document_original);
+
+                const jurisprudencia_document: string = jurisprudencia_document_original.UUID || "";
 
                 const filesystem_document: FilesystemDocument = {
                     creation_date,
@@ -143,7 +145,7 @@ async function updateDrive(drive_name: string, drive_id: string, lastUpdate: Fil
                 let r: estypes.WriteResponseBase | undefined = undefined;
 
                 // write the document in the juris platform if it is available
-                r = await updateJurisDocument(filesystem_document);
+                r = await updateJurisDocument(jurisprudencia_document_original);
                 if (r?.result === "created") {
                     // write the document to the system
                     writeFilesystemDocument(filesystem_document);
@@ -160,7 +162,7 @@ async function updateDrive(drive_name: string, drive_id: string, lastUpdate: Fil
 
         }
         // this is just a counter of all files seen in pages
-        //console.log("i: ", i);
+        //console.log("i: ", i);jurisprudencia_document
 
         if (update.delta_link) {
             update.next_link = undefined;

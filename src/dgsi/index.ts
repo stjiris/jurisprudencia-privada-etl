@@ -1,9 +1,10 @@
-import { JurisprudenciaVersion, PartialJurisprudenciaDocument } from '@stjiris/jurisprudencia-document';
-import { client, indexJurisprudenciaDocumentFromURL, updateJurisprudenciaDocumentFromURL } from '../juris.js';
 import dotenv from 'dotenv';
 import { FilesystemUpdate } from '@stjiris/filesystem-lib';
 import { terminateUpdate } from '../aux.js';
 import { allLinks } from './crawler.js';
+import { client } from '../juris.js';
+import { createJurisprudenciaDocumentFromURL, updateJurisprudenciaDocumentFromURL } from './parser.js';
+import { JurisprudenciaVersion, PartialJurisprudenciaDocument } from '@stjiris/jurisprudencia-document';
 
 dotenv.config();
 
@@ -75,4 +76,20 @@ async function indexedUrlId(url: string): Promise<string | undefined> {
         _source: false,
         size: 1
     }).then(r => r.hits.hits[0] ? r.hits.hits[0]._id : undefined);
+}
+
+
+export async function indexJurisprudenciaDocumentFromURL(url: string): Promise<PartialJurisprudenciaDocument | undefined> {
+    let obj = await createJurisprudenciaDocumentFromURL(url);
+    if (!obj?.UUID) return;
+    if (obj) {
+        const r = await client.index({
+            index: JurisprudenciaVersion,
+            id: obj.UUID,
+            body: obj
+        });
+        if (r.result === "created") {
+            return obj;
+        }
+    }
 }
