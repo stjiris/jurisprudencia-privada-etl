@@ -20,10 +20,10 @@ function showHelp(code: number, error?: string) {
 async function main() {
     if (FLAG_HELP)
         return showHelp(0);
-    let existsR = await client.indices.exists({ index: JurisprudenciaVersion }, { ignore: [404] });
+    /* let existsR = await client.indices.exists({ index: JurisprudenciaVersion }, { ignore: [404] });
     if (!existsR) {
         return showHelp(1, `${JurisprudenciaVersion} not found`);
-    }
+    } */
     updateDrives();
 
 }

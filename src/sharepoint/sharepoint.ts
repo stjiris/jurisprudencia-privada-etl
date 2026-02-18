@@ -124,6 +124,13 @@ async function updateDrive(drive_name: string, drive_id: string, lastUpdate: Fil
                 // retrieves actual decision content
                 const content: ContentType[] = await retrieveSharepointContent(sharepoint_metadata);
 
+                // identify entities
+                const nlp_json: string | undefined = await convertAndSaveNLP(content[0]);
+
+                if (nlp_json) {
+                    content.push({ data: Buffer.from(nlp_json, "utf-8"), extension: "json" })
+                }
+
                 // creates jurisprudencia document for indexing later and to store metadata in a standard way
                 const jurisprudencia_document_original: PartialJurisprudenciaDocument = await createJurisprudenciaDocument(retrievable_metadata, content, date_area_section, sharepoint_metadata);
 
@@ -145,7 +152,15 @@ async function updateDrive(drive_name: string, drive_id: string, lastUpdate: Fil
                 let r: estypes.WriteResponseBase | undefined = undefined;
 
                 // write the document in the juris platform if it is available
-                r = await updateJurisDocument(jurisprudencia_document_original);
+                try {
+                    r = await updateJurisDocument(jurisprudencia_document_original);
+
+                } catch (err: unknown) {
+                    console.error("Couldn't save juris document");
+                    writeFilesystemDocument(filesystem_document);
+                    addFileToUpdate(update, filesystem_document);
+                }
+
                 if (r?.result === "created") {
                     // write the document to the system
                     writeFilesystemDocument(filesystem_document);
@@ -413,4 +428,33 @@ function normalizeGraphUrlToPath(url: string): string {
 
 function normalizeString(str: string): string {
     return str.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
+}
+
+async function convertAndSaveNLP(content: ContentType): Promise<string | undefined> {
+    try {
+        let formData = new FormData();
+        const uint8Array = new Uint8Array(content.data);
+        const blob = new Blob([uint8Array]);
+        formData.append("file", blob, `Temp_file.${content.extension}`);
+        const response = await fetch(`${process.env.ANONIMIZADOR_URL}/api/file_to_json`, {
+            method: "POST",
+            body: formData
+        });
+
+        if (!response.ok) {
+            const errorText = await response.text();
+            throw new Error(`Conversion failed: ${errorText}`);
+        }
+
+        const result = await response.json();
+
+        console.log('NLP results saved successfully');
+
+        return JSON.stringify(result.nlp, null, 2);
+
+
+    } catch (error) {
+        console.error('Error:', error);
+        alert('Falha ao processar ficheiro.');
+    }
 }
