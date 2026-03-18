@@ -4,20 +4,20 @@ import { ClientSecretCredential } from "@azure/identity";
 import { TokenCredentialAuthenticationProvider } from "@microsoft/microsoft-graph-client/authProviders/azureTokenCredentials/index.js";
 import { PartialJurisprudenciaDocument } from "@stjiris/jurisprudencia-document";
 import { updateJurisDocument } from "../juris.js";
-import dotenv from 'dotenv';
+import dotenv from "dotenv";
 import path from "path";
-import { spawn } from 'child_process';
+import { spawn } from "child_process";
 import { estypes } from "@elastic/elasticsearch";
 import { createJurisprudenciaDocument, terminateUpdate } from "../aux.js";
 
 dotenv.config();
-const tenantId = envOrFail('TENANT_ID');
-const clientId = envOrFail('CLIENT_ID');
-const clientSecret = envOrFail('CLIENT_SECRET');
+const tenantId = envOrFail("TENANT_ID");
+const clientId = envOrFail("CLIENT_ID");
+const clientSecret = envOrFail("CLIENT_SECRET");
 const site_id = envOrFail("SITE_ID");
-const drive_names = process.env['DRIVES'] || ["Anonimização"];
+const drive_names = process.env["DRIVES"] || ["Anonimização"];
 const pythonScriptPath = "src/sharepoint/pdf_parser.py";
-const client = Client.initWithMiddleware({ authProvider: new TokenCredentialAuthenticationProvider(new ClientSecretCredential(tenantId, clientId, clientSecret), { scopes: ['https://graph.microsoft.com/.default'] }) });
+const client = Client.initWithMiddleware({ authProvider: new TokenCredentialAuthenticationProvider(new ClientSecretCredential(tenantId, clientId, clientSecret), { scopes: ["https://graph.microsoft.com/.default"] }) });
 
 type Retrievable_Metadata_Table = Record<string, Retrievable_Metadata>;
 
@@ -29,8 +29,8 @@ const SECTIONTOAREA: Record<string, string> = {
     "5ª Secção": "Área Criminal",
     "6ª Secção": "Área Cível",
     "7ª Secção": "Área Cível",
-    "Contencioso": "Contencioso",
-    "Cnflitos": "Conflitos",
+    Contencioso: "Contencioso",
+    Cnflitos: "Conflitos"
 };
 
 const SECTIONTOSECTION: Record<string, string> = {
@@ -41,8 +41,8 @@ const SECTIONTOSECTION: Record<string, string> = {
     "5ª Secção": "5ª Secção (Criminal)",
     "6ª Secção": "6ª Secção (Cível)",
     "7ª Secção": "7ª Secção (Cível)",
-    "Contencioso": "Contencioso",
-    "Cnflitos": "Conflitos",
+    Contencioso: "Contencioso",
+    Cnflitos: "Conflitos"
 };
 
 export async function updateDrives() {
@@ -125,11 +125,13 @@ async function updateDrive(drive_name: string, drive_id: string, lastUpdate: Fil
                 const content: ContentType[] = await retrieveSharepointContent(sharepoint_metadata);
 
                 // identify entities
-                const nlp_json: string | undefined = await convertAndSaveNLP(content[0]);
+                try {
+                    const nlp_json: string | undefined = await convertAndSaveNLP(content[0]);
 
-                if (nlp_json) {
-                    content.push({ data: Buffer.from(nlp_json, "utf-8"), extension: "json" })
-                }
+                    if (nlp_json) {
+                        content.push({ data: Buffer.from(nlp_json, "utf-8"), extension: "json" });
+                    }
+                } catch (err: unknown) {}
 
                 // creates jurisprudencia document for indexing later and to store metadata in a standard way
                 const jurisprudencia_document_original: PartialJurisprudenciaDocument = await createJurisprudenciaDocument(retrievable_metadata, content, date_area_section, sharepoint_metadata);
@@ -147,14 +149,13 @@ async function updateDrive(drive_name: string, drive_id: string, lastUpdate: Fil
                     content,
                     file_path,
                     sharepoint_metadata
-                }
+                };
 
                 let r: estypes.WriteResponseBase | undefined = undefined;
 
                 // write the document in the juris platform if it is available
                 try {
                     r = await updateJurisDocument(jurisprudencia_document_original);
-
                 } catch (err: unknown) {
                     console.error("Couldn't save juris document");
                     writeFilesystemDocument(filesystem_document);
@@ -166,15 +167,13 @@ async function updateDrive(drive_name: string, drive_id: string, lastUpdate: Fil
                     writeFilesystemDocument(filesystem_document);
                     addFileToUpdate(update, filesystem_document);
                 }
-
             } catch (err: unknown) {
                 if (err instanceof Error) {
                     // this should log the exact issue with the file
-                    let file_name = (drive_item?.parentReference.path ?? '') + '/' + (drive_item?.name ?? '');
+                    let file_name = (drive_item?.parentReference.path ?? "") + "/" + (drive_item?.name ?? "");
                     logDocumentProcessingError(update, `Error processessing file ${file_name}, number ${i} of drive ${drive_name}: ` + err.message);
                 }
             }
-
         }
         // this is just a counter of all files seen in pages
         console.log("Files processed as seen: ", i);
@@ -242,26 +241,21 @@ async function retrieveSharepointTable(sharepoint_metadata: Sharepoint_Metadata)
 
     while (true) {
         const { done, value } = await reader.read();
-        if (done)
-            break;
+        if (done) break;
         chunks.push(value);
     }
 
-    const fileContent = Buffer.concat(chunks.map(c => Buffer.from(c)));
+    const fileContent = Buffer.concat(chunks.map((c) => Buffer.from(c)));
 
     const parsed_rows = await parseMetadataTable(fileContent);
-    const table: Retrievable_Metadata_Table = parsed_rows.reduce(
-        (acc, row) => {
-            const key = row["Processo"];
+    const table: Retrievable_Metadata_Table = parsed_rows.reduce((acc, row) => {
+        const key = row["Processo"];
 
-            if (!key)
-                return acc;
+        if (!key) return acc;
 
-            acc[key] = { process_number: row["Processo"], judge: row["Relator"], process_mean: [row['Espécie']], decision: row['Decisão'] };
-            return acc;
-        },
-        {} as Retrievable_Metadata_Table
-    );
+        acc[key] = { process_number: row["Processo"], judge: row["Relator"], process_mean: [row["Espécie"]], decision: row["Decisão"] };
+        return acc;
+    }, {} as Retrievable_Metadata_Table);
     return table;
 }
 
@@ -296,14 +290,7 @@ async function parseMetadataTable(buffer: Buffer): Promise<Row[]> {
                 const parsed = JSON.parse(stdout) as Row[];
                 resolve(parsed);
             } catch (err) {
-                reject(
-                    new Error(
-                        `Failed to parse JSON from Python stdout. Error: ${(err as Error).message}\nStdout: ${stdout.slice(
-                            0,
-                            2000
-                        )}\nStderr: ${stderr}`
-                    )
-                );
+                reject(new Error(`Failed to parse JSON from Python stdout. Error: ${(err as Error).message}\nStdout: ${stdout.slice(0, 2000)}\nStderr: ${stderr}`));
             }
         });
 
@@ -322,7 +309,7 @@ async function parseMetadataTable(buffer: Buffer): Promise<Row[]> {
 
 function getRetrievableMetadata(retrievable_metadata_table: Retrievable_Metadata_Table, sharepoint_metadata: Sharepoint_Metadata): Retrievable_Metadata {
     const original_file_name: string = path.basename(sharepoint_metadata.sharepoint_path_rel).replace(/-/g, "/");
-    const matchedKey = Object.keys(retrievable_metadata_table).find(k => original_file_name.includes(k.replace(/-/g, "/")));
+    const matchedKey = Object.keys(retrievable_metadata_table).find((k) => original_file_name.includes(k.replace(/-/g, "/")));
     if (!matchedKey) {
         throw new Error("Metadata não encontrada dentro da tabela correspondente.");
     }
@@ -348,11 +335,11 @@ function readSharepoint_Metadata(drive_item: any, drive_name: string, drive_id: 
 
     const sharepoint_id = drive_item.id;
     const parent_sharepoint_id = drive_item.parentReference.id;
-    const sharepoint_path = drive_item.parentReference.path + '/' + drive_item.name;
+    const sharepoint_path = drive_item.parentReference.path + "/" + drive_item.name;
     const sharepoint_path_rel = generateRelPath(sharepoint_path, drive_id, drive_name);
     const sharepoint_url = drive_item.webUrl;
     const xor_hash: string | undefined = drive_item.file.hashes.quickXorHash;
-    const extensions: Supported_Content_Extensions[] = [getSupportedExtension(drive_item.name),];
+    const extensions: Supported_Content_Extensions[] = [getSupportedExtension(drive_item.name)];
 
     return {
         drive_name,
@@ -363,7 +350,7 @@ function readSharepoint_Metadata(drive_item: any, drive_name: string, drive_id: 
         sharepoint_path_rel,
         sharepoint_url,
         extensions,
-        xor_hash,
+        xor_hash
     };
 }
 
@@ -378,8 +365,7 @@ export function getSupportedExtension(filename: string): Supported_Content_Exten
 }
 
 function generateRelPath(sharepoint_path: string, drive_id: string, drive_name: string): string {
-    if (!sharepoint_path)
-        return `/${drive_name}`;
+    if (!sharepoint_path) return `/${drive_name}`;
 
     const marker = `/drives/${drive_id}`;
     const start = sharepoint_path.indexOf(marker);
@@ -388,18 +374,15 @@ function generateRelPath(sharepoint_path: string, drive_id: string, drive_name: 
 
     rest = rest.replace(/^\/drive\/root:|^\/root:|^:/, "");
 
-    if (!rest.startsWith("/"))
-        rest = "/" + rest;
+    if (!rest.startsWith("/")) rest = "/" + rest;
 
     return `/${drive_name}${rest}`;
 }
 
 async function retrieveSharepointContent(sharepoint_metadata: Sharepoint_Metadata): Promise<ContentType[]> {
-    let contents: ContentType[] = []
+    let contents: ContentType[] = [];
     for (const extension of sharepoint_metadata.extensions) {
-        const webStream = await client
-            .api(`/drives/${sharepoint_metadata.drive_id}/items/${sharepoint_metadata.sharepoint_id}/content`)
-            .get();
+        const webStream = await client.api(`/drives/${sharepoint_metadata.drive_id}/items/${sharepoint_metadata.sharepoint_id}/content`).get();
 
         const reader = webStream.getReader();
         const chunks: Uint8Array[] = [];
@@ -410,7 +393,7 @@ async function retrieveSharepointContent(sharepoint_metadata: Sharepoint_Metadat
             chunks.push(value);
         }
 
-        contents.push({ extension: extension, data: Buffer.concat(chunks.map(c => Buffer.from(c))) });
+        contents.push({ extension: extension, data: Buffer.concat(chunks.map((c) => Buffer.from(c))) });
     }
     return contents;
 }
@@ -427,7 +410,10 @@ function normalizeGraphUrlToPath(url: string): string {
 }
 
 function normalizeString(str: string): string {
-    return str.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
+    return str
+        .normalize("NFD")
+        .replace(/[\u0300-\u036f]/g, "")
+        .toLowerCase();
 }
 
 async function convertAndSaveNLP(content: ContentType): Promise<string | undefined> {
@@ -448,13 +434,10 @@ async function convertAndSaveNLP(content: ContentType): Promise<string | undefin
 
         const result = await response.json();
 
-        console.log('NLP results saved successfully');
+        console.log("NLP results saved successfully");
 
         return JSON.stringify(result.nlp, null, 2);
-
-
     } catch (error) {
-        console.error('Error:', error);
-        alert('Falha ao processar ficheiro.');
+        console.error("Error:", error);
     }
 }
