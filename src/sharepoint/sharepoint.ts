@@ -2,8 +2,8 @@ import { Client } from "@microsoft/microsoft-graph-client";
 import { addFileToUpdate, ContentType, Date_Area_Section, FilesystemDocument, FilesystemUpdate, generateFilePath, isSupportedExtension, loadLastFilesystemUpdate, logDocumentProcessingError, Retrievable_Metadata, Sharepoint_Metadata, Supported_Content_Extensions, SupportedUpdateSources, writeFilesystemDocument, writeFilesystemUpdate } from "@stjiris/filesystem-lib";
 import { ClientSecretCredential } from "@azure/identity";
 import { TokenCredentialAuthenticationProvider } from "@microsoft/microsoft-graph-client/authProviders/azureTokenCredentials/index.js";
-import { PartialJurisprudenciaDocument } from "@stjiris/jurisprudencia-document";
-import { updateJurisDocument } from "../juris.js";
+import { calculateHASH, JurisprudenciaDocument, JurisprudenciaVersion, PartialJurisprudenciaDocument } from "@stjiris/jurisprudencia-document";
+import { updateJurisDocument, client as esClient } from "../juris.js";
 import dotenv from "dotenv";
 import path from "path";
 import { spawn } from "child_process";
@@ -44,6 +44,104 @@ const SECTIONTOSECTION: Record<string, string> = {
     Contencioso: "Contencioso",
     Cnflitos: "Conflitos"
 };
+
+type ComplementaryCheck = { type: 'merged' } | { type: 'skip' } | { type: 'none' };
+
+async function checkAndMergeComplementary(newDoc: PartialJurisprudenciaDocument): Promise<ComplementaryCheck> {
+    if (!newDoc.Data || !newDoc["Número de Processo"]) return { type: 'none' };
+
+    const newHasSumario = (newDoc.Sumário || "").length > 0;
+    const newHasTexto = (newDoc.Texto || "").length > 0;
+
+    // Only relevant when this doc has exactly one of sumário or texto
+    if (newHasSumario === newHasTexto) return { type: 'none' };
+
+    const r = await esClient.search<JurisprudenciaDocument>({
+        index: JurisprudenciaVersion,
+        query: {
+            bool: {
+                must: [
+                    { term: { "Data": newDoc.Data } },
+                    { term: { "Número de Processo": newDoc["Número de Processo"] } }
+                ]
+            }
+        },
+        _source: true,
+        size: 10
+    });
+
+    // Meio Processual values of the new doc, excluding the "Sumário" type marker
+    const newMeios = new Set((newDoc["Meio Processual"]?.Original ?? []).filter(m => m !== "Sumário"));
+
+    for (const hit of r.hits.hits) {
+        if (!hit._source || !hit._id) continue;
+        const existing = hit._source;
+
+        // Match Meio Processual ignoring the "Sumário" marker on either side
+        const existingMeios = (existing["Meio Processual"]?.Original ?? []).filter(m => m !== "Sumário");
+        if (newMeios.size > 0 && existingMeios.length > 0) {
+            if (!existingMeios.some(m => newMeios.has(m))) continue;
+        }
+
+        const existingHasSumario = (existing.Sumário || "").length > 0;
+        const existingHasTexto = (existing.Texto || "").length > 0;
+
+        // Already a complete doc — this file was already merged in a previous run
+        if (existingHasSumario && existingHasTexto) return { type: 'skip' };
+
+        // Complementary: one has sumário, the other has texto
+        if ((newHasSumario && !existingHasSumario && existingHasTexto) ||
+            (newHasTexto && !existingHasTexto && existingHasSumario)) {
+            await mergeIntoDocument(hit._id, existing, newDoc);
+            return { type: 'merged' };
+        }
+    }
+
+    return { type: 'none' };
+}
+
+async function mergeIntoDocument(existingId: string, existing: JurisprudenciaDocument, newDoc: PartialJurisprudenciaDocument): Promise<void> {
+    const update: PartialJurisprudenciaDocument = {};
+
+    if (!(existing.Sumário || "").length && newDoc.Sumário) {
+        update.Sumário = newDoc.Sumário;
+    }
+    if (!(existing.Texto || "").length && newDoc.Texto) {
+        update.Texto = newDoc.Texto;
+    }
+
+    // Merge CONTENT without duplicates
+    const newContent = newDoc.CONTENT?.filter(c => !existing.CONTENT?.includes(c)) || [];
+    if (newContent.length > 0) {
+        update.CONTENT = [...(existing.CONTENT || []), ...newContent];
+    }
+
+    // If the existing doc was the sumário doc, strip "Sumário" from Meio Processual
+    const existingMeios = existing["Meio Processual"]?.Original ?? [];
+    if (existingMeios.includes("Sumário")) {
+        const cleaned = existingMeios.filter(m => m !== "Sumário");
+        update["Meio Processual"] = { Index: cleaned, Original: cleaned, Show: cleaned };
+    }
+
+    update.HASH = calculateHASH({
+        Original: existing.Original,
+        "Número de Processo": existing["Número de Processo"],
+        Data: existing.Data,
+        "Meio Processual": update["Meio Processual"] ?? existing["Meio Processual"],
+        Sumário: update.Sumário ?? existing.Sumário,
+        "Sumário Não Anonimizado": update.Sumário ?? existing["Sumário Não Anonimizado"],
+        Texto: update.Texto ?? existing.Texto,
+        "Texto Não Anonimizado": update.Texto ?? existing["Texto Não Anonimizado"],
+    });
+
+    await esClient.update({
+        index: JurisprudenciaVersion,
+        id: existingId,
+        body: { doc: update }
+    });
+
+    console.log(`Merged ${newDoc.Sumário ? "Sumário" : "Texto"} from ${newDoc.URL} into existing document ${existingId}`);
+}
 
 export async function updateDrives() {
     const last_update: FilesystemUpdate = loadLastFilesystemUpdate("STJ (Sharepoint)");
@@ -150,6 +248,20 @@ async function updateDrive(drive_name: string, drive_id: string, lastUpdate: Fil
                     file_path,
                     sharepoint_metadata
                 };
+
+                // Check if this doc is complementary to an existing one (sumário ↔ texto)
+                const complementaryResult = await checkAndMergeComplementary(jurisprudencia_document_original);
+
+                if (complementaryResult.type === 'skip') {
+                    console.log(`Skipping ${sharepoint_metadata.sharepoint_url}: complete document already exists for this process/date/meio`);
+                    continue;
+                }
+
+                if (complementaryResult.type === 'merged') {
+                    writeFilesystemDocument(filesystem_document);
+                    addFileToUpdate(update, filesystem_document);
+                    continue;
+                }
 
                 let r: estypes.WriteResponseBase | undefined = undefined;
 
@@ -422,6 +534,7 @@ async function convertAndSaveNLP(content: ContentType): Promise<string | undefin
         const uint8Array = new Uint8Array(content.data);
         const blob = new Blob([uint8Array]);
         formData.append("file", blob, `Temp_file.${content.extension}`);
+        console.log(process.env.ANONIMIZADOR_URL);
         const response = await fetch(`${process.env.ANONIMIZADOR_URL}/api/file_to_json`, {
             method: "POST",
             body: formData
