@@ -72,10 +72,12 @@ export async function createJurisprudenciaDocument(retrievable_Metadata: Retriev
     }
     if (retrievable_Metadata.process_mean.includes("Sumário")) {
         obj.Sumário = content.map(line => `<p><font>${line}</font><br>`).join('');
+        obj["Sumário Não Anonimizado"] = obj.Sumário;
         obj.Texto = "";
     } else {
         obj.Sumário = "";
         obj.Texto = content.map(line => `<p><font>${line}</font><br>`).join('');
+        obj["Texto Não Anonimizado"] = obj.Texto;
     }
     if (retrievable_Metadata.descriptors && retrievable_Metadata.descriptors.length > 0) {
         obj.Descritores = {

@@ -105,9 +105,11 @@ async function mergeIntoDocument(existingId: string, existing: JurisprudenciaDoc
 
     if (!(existing.Sumário || "").length && newDoc.Sumário) {
         update.Sumário = newDoc.Sumário;
+        update["Sumário Não Anonimizado"] = newDoc.Sumário;
     }
     if (!(existing.Texto || "").length && newDoc.Texto) {
         update.Texto = newDoc.Texto;
+        update["Texto Não Anonimizado"] = newDoc.Texto;
     }
 
     // Merge CONTENT without duplicates
