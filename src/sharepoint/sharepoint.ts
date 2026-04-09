@@ -128,6 +128,8 @@ async function mergeIntoDocument(existingId: string, existing: JurisprudenciaDoc
         "Número de Processo": existing["Número de Processo"],
         Data: existing.Data,
         "Meio Processual": update["Meio Processual"] ?? existing["Meio Processual"],
+        "Sumário": "",
+        "Texto": "",
         "Sumário Não Anonimizado": update["Sumário Não Anonimizado"] ?? existing["Sumário Não Anonimizado"],
         "Texto Não Anonimizado": update["Texto Não Anonimizado"] ?? existing["Texto Não Anonimizado"],
     });

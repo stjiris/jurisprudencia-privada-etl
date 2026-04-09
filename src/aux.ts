@@ -104,6 +104,8 @@ export async function createJurisprudenciaDocument(retrievable_Metadata: Retriev
         "Número de Processo": obj["Número de Processo"],
         Data: obj.Data,
         "Meio Processual": obj["Meio Processual"],
+        "Sumário": "",
+        "Texto": "",
         "Texto Não Anonimizado": obj["Texto Não Anonimizado"],
         "Sumário Não Anonimizado": obj["Sumário Não Anonimizado"],
     })
