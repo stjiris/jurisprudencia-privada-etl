@@ -163,9 +163,11 @@ async function addSumarioAndTexto(obj: PartialJurisprudenciaDocument, table: Rec
     let [emptySum, emptyTex] = await Promise.all([testEmptyHTML(sum), testEmptyHTML(tex)]);
     if (!emptySum) {
         obj.Sumário = stripHTMLAttributes(sum);
+        obj["Sumário Não Anonimizado"] = obj.Sumário;
     }
     if (!emptyTex) {
         obj.Texto = stripHTMLAttributes(tex);
+        obj["Texto Não Anonimizado"] = obj.Texto;
     }
 }
 
