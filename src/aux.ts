@@ -71,13 +71,9 @@ export async function createJurisprudenciaDocument(retrievable_Metadata: Retriev
         "STATE": "importação",
     }
     if (retrievable_Metadata.process_mean.includes("Sumário")) {
-        obj.Sumário = content.map(line => `<p><font>${line}</font><br>`).join('');
-        obj["Sumário Não Anonimizado"] = obj.Sumário;
-        obj.Texto = "";
+        obj["Sumário Não Anonimizado"] = content.map(line => `<p><font>${line}</font><br>`).join('');
     } else {
-        obj.Sumário = "";
-        obj.Texto = content.map(line => `<p><font>${line}</font><br>`).join('');
-        obj["Texto Não Anonimizado"] = obj.Texto;
+        obj["Texto Não Anonimizado"] = content.map(line => `<p><font>${line}</font><br>`).join('');
     }
     if (retrievable_Metadata.descriptors && retrievable_Metadata.descriptors.length > 0) {
         obj.Descritores = {
@@ -108,10 +104,8 @@ export async function createJurisprudenciaDocument(retrievable_Metadata: Retriev
         "Número de Processo": obj["Número de Processo"],
         Data: obj.Data,
         "Meio Processual": obj["Meio Processual"],
-        "Texto": obj.Texto,
-        "Texto Não Anonimizado": obj.Texto,
-        "Sumário": obj.Sumário,
-        "Sumário Não Anonimizado": obj.Sumário,
+        "Texto Não Anonimizado": obj["Texto Não Anonimizado"],
+        "Sumário Não Anonimizado": obj["Sumário Não Anonimizado"],
     })
 
     obj["UUID"] = calculateUUID(obj["HASH"]);

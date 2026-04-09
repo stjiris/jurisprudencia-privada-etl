@@ -50,8 +50,8 @@ type ComplementaryCheck = { type: 'merged' } | { type: 'skip' } | { type: 'none'
 async function checkAndMergeComplementary(newDoc: PartialJurisprudenciaDocument): Promise<ComplementaryCheck> {
     if (!newDoc.Data || !newDoc["Número de Processo"]) return { type: 'none' };
 
-    const newHasSumario = (newDoc.Sumário || "").length > 0;
-    const newHasTexto = (newDoc.Texto || "").length > 0;
+    const newHasSumario = (newDoc["Sumário Não Anonimizado"] || "").length > 0;
+    const newHasTexto = (newDoc["Texto Não Anonimizado"] || "").length > 0;
 
     // Only relevant when this doc has exactly one of sumário or texto
     if (newHasSumario === newHasTexto) return { type: 'none' };
@@ -83,8 +83,8 @@ async function checkAndMergeComplementary(newDoc: PartialJurisprudenciaDocument)
             if (!existingMeios.some(m => newMeios.has(m))) continue;
         }
 
-        const existingHasSumario = (existing.Sumário || "").length > 0;
-        const existingHasTexto = (existing.Texto || "").length > 0;
+        const existingHasSumario = (existing["Sumário Não Anonimizado"] || "").length > 0;
+        const existingHasTexto = (existing["Texto Não Anonimizado"] || "").length > 0;
 
         // Already a complete doc — this file was already merged in a previous run
         if (existingHasSumario && existingHasTexto) return { type: 'skip' };
@@ -103,13 +103,11 @@ async function checkAndMergeComplementary(newDoc: PartialJurisprudenciaDocument)
 async function mergeIntoDocument(existingId: string, existing: JurisprudenciaDocument, newDoc: PartialJurisprudenciaDocument): Promise<void> {
     const update: PartialJurisprudenciaDocument = {};
 
-    if (!(existing.Sumário || "").length && newDoc.Sumário) {
-        update.Sumário = newDoc.Sumário;
-        update["Sumário Não Anonimizado"] = newDoc.Sumário;
+    if (!(existing["Sumário Não Anonimizado"] || "").length && newDoc["Sumário Não Anonimizado"]) {
+        update["Sumário Não Anonimizado"] = newDoc["Sumário Não Anonimizado"];
     }
-    if (!(existing.Texto || "").length && newDoc.Texto) {
-        update.Texto = newDoc.Texto;
-        update["Texto Não Anonimizado"] = newDoc.Texto;
+    if (!(existing["Texto Não Anonimizado"] || "").length && newDoc["Texto Não Anonimizado"]) {
+        update["Texto Não Anonimizado"] = newDoc["Texto Não Anonimizado"];
     }
 
     // Merge CONTENT without duplicates
@@ -130,10 +128,8 @@ async function mergeIntoDocument(existingId: string, existing: JurisprudenciaDoc
         "Número de Processo": existing["Número de Processo"],
         Data: existing.Data,
         "Meio Processual": update["Meio Processual"] ?? existing["Meio Processual"],
-        Sumário: update.Sumário ?? existing.Sumário,
-        "Sumário Não Anonimizado": update.Sumário ?? existing["Sumário Não Anonimizado"],
-        Texto: update.Texto ?? existing.Texto,
-        "Texto Não Anonimizado": update.Texto ?? existing["Texto Não Anonimizado"],
+        "Sumário Não Anonimizado": update["Sumário Não Anonimizado"] ?? existing["Sumário Não Anonimizado"],
+        "Texto Não Anonimizado": update["Texto Não Anonimizado"] ?? existing["Texto Não Anonimizado"],
     });
 
     await esClient.update({
