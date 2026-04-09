@@ -6,9 +6,7 @@
   "scripts": {
     "build": "tsc",
     "run_sharepoint": "node dist/sharepoint/index.js",
-    "start_sharepoint": "npm run build && npm run run_sharepoint",
-    "run_dgsi": "node dist/dgsi/index.js",
-    "start_dgsi": "npm run build && npm run run_dgsi"
+    "start_sharepoint": "npm run build && npm run run_sharepoint"
   },
   "type": "module",
   "keywords": [],
