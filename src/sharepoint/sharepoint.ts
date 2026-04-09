@@ -1,5 +1,5 @@
 import { Client } from "@microsoft/microsoft-graph-client";
-import { addFileToUpdate, ContentType, Date_Area_Section, FilesystemDocument, FilesystemUpdate, generateFilePath, isSupportedExtension, loadLastFilesystemUpdate, logDocumentProcessingError, Retrievable_Metadata, Sharepoint_Metadata, Supported_Content_Extensions, SupportedUpdateSources, writeFilesystemDocument, writeFilesystemUpdate } from "@stjiris/filesystem-lib";
+import { addFileToUpdate, ContentType, Date_Area_Section, FilesystemDocument, FilesystemUpdate, generateFilePath, isSupportedExtension, loadLastFilesystemUpdate, logDocumentProcessingError, Retrievable_Metadata, Sharepoint_Metadata, Supported_Content_Extensions, SupportedUpdateSources, writeContentToDocument, writeFilesystemDocument, writeFilesystemUpdate } from "@stjiris/filesystem-lib";
 import { ClientSecretCredential } from "@azure/identity";
 import { TokenCredentialAuthenticationProvider } from "@microsoft/microsoft-graph-client/authProviders/azureTokenCredentials/index.js";
 import { calculateHASH, JurisprudenciaDocument, JurisprudenciaVersion, PartialJurisprudenciaDocument } from "@stjiris/jurisprudencia-document";
@@ -45,7 +45,7 @@ const SECTIONTOSECTION: Record<string, string> = {
     Cnflitos: "Conflitos"
 };
 
-type ComplementaryCheck = { type: 'merged' } | { type: 'skip' } | { type: 'none' };
+type ComplementaryCheck = { type: 'merged'; existingDoc: JurisprudenciaDocument; isSumario: boolean } | { type: 'skip' } | { type: 'none' };
 
 async function checkAndMergeComplementary(newDoc: PartialJurisprudenciaDocument): Promise<ComplementaryCheck> {
     if (!newDoc.Data || !newDoc["Número de Processo"]) return { type: 'none' };
@@ -93,7 +93,7 @@ async function checkAndMergeComplementary(newDoc: PartialJurisprudenciaDocument)
         if ((newHasSumario && !existingHasSumario && existingHasTexto) ||
             (newHasTexto && !existingHasTexto && existingHasSumario)) {
             await mergeIntoDocument(hit._id, existing, newDoc);
-            return { type: 'merged' };
+            return { type: 'merged', existingDoc: existing, isSumario: newHasSumario };
         }
     }
 
@@ -258,7 +258,10 @@ async function updateDrive(drive_name: string, drive_id: string, lastUpdate: Fil
                 }
 
                 if (complementaryResult.type === 'merged') {
-                    writeFilesystemDocument(filesystem_document);
+                    const mainContent = content.find(c => c.extension !== "json");
+                    if (mainContent) {
+                        writeContentToDocument(complementaryResult.existingDoc, mainContent, complementaryResult.isSumario);
+                    }
                     addFileToUpdate(update, filesystem_document);
                     continue;
                 }
