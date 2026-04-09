@@ -5,8 +5,7 @@
   "main": "sharepoint/index.js",
   "scripts": {
     "build": "tsc",
-    "run_sharepoint": "node dist/sharepoint/index.js",
-    "start_sharepoint": "npm run build && npm run run_sharepoint"
+    "start": "npm run build && node dist/sharepoint/index.js"
   },
   "type": "module",
   "keywords": [],
