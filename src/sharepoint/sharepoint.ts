@@ -1,5 +1,5 @@
 import { Client } from "@microsoft/microsoft-graph-client";
-import { addFileToUpdate, ContentType, Date_Area_Section, FilesystemDocument, FilesystemUpdate, generateFilePath, isSupportedExtension, loadLastFilesystemUpdate, logDocumentProcessingError, Retrievable_Metadata, Sharepoint_Metadata, Supported_Content_Extensions, SupportedUpdateSources, writeContentToDocument, writeFilesystemDocument, writeFilesystemUpdate } from "@stjiris/filesystem-lib";
+import { addFileToUpdate, clearReintroductionMarker, ContentType, Date_Area_Section, FilesystemDocument, FilesystemUpdate, generateFilePath, isSupportedExtension, loadLastFilesystemUpdate, loadPendingReintroductions, logDocumentProcessingError, Retrievable_Metadata, Sharepoint_Metadata, Supported_Content_Extensions, SupportedUpdateSources, writeContentToDocument, writeFilesystemDocument, writeFilesystemUpdate } from "@stjiris/filesystem-lib";
 import { ClientSecretCredential } from "@azure/identity";
 import { TokenCredentialAuthenticationProvider } from "@microsoft/microsoft-graph-client/authProviders/azureTokenCredentials/index.js";
 import { calculateHASH, JurisprudenciaDocument, JurisprudenciaVersion, PartialJurisprudenciaDocument } from "@stjiris/jurisprudencia-document";
@@ -149,6 +149,44 @@ export async function updateDrives() {
 
     for (const [drive_name, drive_id] of Object.entries(drive_id_names)) {
         await updateDrive(drive_name, drive_id, last_update);
+    }
+
+    await processReintroductions(drive_id_names);
+}
+
+async function processReintroductions(drive_id_names: Record<string, string>): Promise<void> {
+    const markers = loadPendingReintroductions();
+    if (markers.length === 0) return;
+
+    console.log(`Processing ${markers.length} pending reintroduction(s)...`);
+
+    // Group markers by (drive_id, parent_sharepoint_id) to avoid scanning the same folder twice
+    const foldersToScan = new Map<string, { drive_name: string; drive_id: string; parent_sharepoint_id: string; uuids: string[] }>();
+    for (const marker of markers) {
+        // Only process markers for drives we know about
+        if (!Object.values(drive_id_names).includes(marker.drive_id)) {
+            console.warn(`processReintroductions: unknown drive_id ${marker.drive_id} for UUID ${marker.uuid}, skipping`);
+            clearReintroductionMarker(marker.uuid);
+            continue;
+        }
+        const key = `${marker.drive_id}:${marker.parent_sharepoint_id}`;
+        if (!foldersToScan.has(key)) {
+            foldersToScan.set(key, { drive_name: marker.drive_name, drive_id: marker.drive_id, parent_sharepoint_id: marker.parent_sharepoint_id, uuids: [] });
+        }
+        foldersToScan.get(key)!.uuids.push(marker.uuid);
+    }
+
+    const update: FilesystemUpdate = { updateSource: "STJ (Sharepoint)", date_start: new Date(), file_errors: [] };
+    const retrievable_metadata_tables: Record<string, any> = {};
+
+    for (const { drive_name, drive_id, parent_sharepoint_id, uuids } of foldersToScan.values()) {
+        console.log(`processReintroductions: scanning folder ${parent_sharepoint_id} in drive ${drive_name}`);
+        await scanFolderForMissingFiles(drive_name, drive_id, parent_sharepoint_id, retrievable_metadata_tables, update);
+        for (const uuid of uuids) clearReintroductionMarker(uuid);
+    }
+
+    if ((update.created_num ?? 0) > 0 || update.file_errors.length > 0) {
+        terminateUpdate(update, `Reintroductions processed.`, "STJ (Sharepoint)");
     }
 }
 
