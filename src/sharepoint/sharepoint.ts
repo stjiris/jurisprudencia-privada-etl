@@ -11,7 +11,7 @@ import { spawn } from "child_process";
 import { estypes } from "@elastic/elasticsearch";
 import { createJurisprudenciaDocument, terminateUpdate } from "../aux.js";
 
-dotenv.config();
+dotenv.config(); // loads .env if present; no-op otherwise (e.g. in docker)
 const tenantId = envOrFail("TENANT_ID");
 const clientId = envOrFail("CLIENT_ID");
 const clientSecret = envOrFail("CLIENT_SECRET");

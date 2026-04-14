@@ -1,5 +1,4 @@
 import { JurisprudenciaDocumentDateKey, JurisprudenciaDocumentExactKey } from "@stjiris/jurisprudencia-document";
-import { notify } from "./notify.js";
 import { estypes } from "@elastic/elasticsearch";
 import { client } from "../juris.js";
 
@@ -39,7 +38,6 @@ export async function report(report: Report) {
         document: report
     })
     console.log(report);
-    notify(report);
 }
 
 export type ConflictsType = Partial<Record<JurisprudenciaDocumentExactKey | JurisprudenciaDocumentDateKey, Record<"Current" | "New", string>>>
