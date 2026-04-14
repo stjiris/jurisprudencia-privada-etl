@@ -1,11 +1,12 @@
 import { Client } from "@microsoft/microsoft-graph-client";
-import { addFileToUpdate, clearReintroductionMarker, ContentType, Date_Area_Section, FilesystemDocument, FilesystemUpdate, generateFilePath, isSupportedExtension, loadCachedNlpFromDetalhes, loadLastFilesystemUpdate, loadPendingReintroductions, logDocumentProcessingError, Retrievable_Metadata, Sharepoint_Metadata, Supported_Content_Extensions, SupportedUpdateSources, writeContentToDocument, writeFilesystemDocument, writeFilesystemUpdate } from "@stjiris/filesystem-lib";
+import { addFileToUpdate, clearReintroductionMarker, ContentType, Date_Area_Section, DETAILS_NAME, FilesystemDocument, FilesystemUpdate, FILESYSTEM_PATH, generateFilePath, isSupportedExtension, loadCachedNlpFromDetalhes, loadLastFilesystemUpdate, loadPendingReintroductions, logDocumentProcessingError, Retrievable_Metadata, ROOT_PATH, Sharepoint_Metadata, Supported_Content_Extensions, SupportedUpdateSources, writeContentToDocument, writeFilesystemDocument, writeFilesystemUpdate } from "@stjiris/filesystem-lib";
 import { ClientSecretCredential } from "@azure/identity";
 import { TokenCredentialAuthenticationProvider } from "@microsoft/microsoft-graph-client/authProviders/azureTokenCredentials/index.js";
 import { calculateHASH, JurisprudenciaDocument, JurisprudenciaVersion, PartialJurisprudenciaDocument } from "@stjiris/jurisprudencia-document";
 import { updateJurisDocument, client as esClient } from "../juris.js";
 import crypto from "crypto";
 import dotenv from "dotenv";
+import fs from "fs";
 import path from "path";
 import { spawn } from "child_process";
 import { estypes } from "@elastic/elasticsearch";
@@ -328,6 +329,13 @@ async function processFileItem(
     if (r?.result === "created") {
         writeFilesystemDocument(filesystem_document);
         addFileToUpdate(update, filesystem_document);
+    } else if (filesystem_document.file_path) {
+        const detalhesPath = `${ROOT_PATH}${FILESYSTEM_PATH}${filesystem_document.file_path}/${DETAILS_NAME}.json`;
+        if (!fs.existsSync(detalhesPath)) {
+            console.log(`Restoring missing filesystem entry for ${filesystem_document.file_path}`);
+            writeFilesystemDocument(filesystem_document);
+            addFileToUpdate(update, filesystem_document);
+        }
     }
 }
 
