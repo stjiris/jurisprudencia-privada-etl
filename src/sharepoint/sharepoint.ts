@@ -152,6 +152,31 @@ export async function updateDrives() {
     }
 }
 
+// Check if a document for this process/date/tipo already exists in ES with content
+async function isAlreadyIntroduced(processNumber: string, data: string, isSumario: boolean): Promise<boolean> {
+    const r = await esClient.search<JurisprudenciaDocument>({
+        index: JurisprudenciaVersion,
+        query: { bool: { must: [{ term: { "Data": data } }, { term: { "Número de Processo": processNumber } }] } },
+        _source: ["Sumário Não Anonimizado", "Texto Não Anonimizado"],
+        size: 10
+    });
+    for (const hit of r.hits.hits) {
+        if (!hit._source) continue;
+        if (isSumario && (hit._source["Sumário Não Anonimizado"] || "").length > 0) return true;
+        if (!isSumario && (hit._source["Texto Não Anonimizado"] || "").length > 0) return true;
+    }
+    return false;
+}
+
+function withTimeout<T>(promise: Promise<T>, ms: number, label: string): Promise<T> {
+    return Promise.race([
+        promise,
+        new Promise<T>((_, reject) =>
+            setTimeout(() => reject(new Error(`Timeout after ${ms}ms: ${label}`)), ms)
+        )
+    ]);
+}
+
 async function getDrivesIdNames(): Promise<Record<string, string>> {
     const result = await client.api(`/sites/${site_id}/drives`).select("id,name").get();
     type Drive = { id: string; name: string };
@@ -165,133 +190,205 @@ async function getDrivesIdNames(): Promise<Record<string, string>> {
     return drives_dict;
 }
 
+// Core processing pipeline for a single drive item. Throws on unrecoverable error.
+async function processFileItem(
+    drive_item: any,
+    drive_name: string,
+    drive_id: string,
+    retrievable_metadata_tables: Record<string, Retrievable_Metadata_Table>,
+    update: FilesystemUpdate
+): Promise<void> {
+    const sharepoint_metadata: Sharepoint_Metadata = readSharepoint_Metadata(drive_item, drive_name, drive_id);
+    const creation_date: Date = new Date();
+    const last_update_date: Date = creation_date;
+    const date_area_section: Date_Area_Section = getDateAreaSection(sharepoint_metadata);
+
+    const folderKey = path.dirname(sharepoint_metadata.sharepoint_path_rel);
+    if (!(folderKey in retrievable_metadata_tables)) {
+        retrievable_metadata_tables[folderKey] = await withTimeout(
+            retrieveSharepointTable(sharepoint_metadata),
+            60_000,
+            `retrieveSharepointTable for ${folderKey}`
+        );
+    }
+
+    const retrievable_metadata: Retrievable_Metadata = getRetrievableMetadata(retrievable_metadata_tables[folderKey], sharepoint_metadata);
+    if (normalizeString(path.basename(sharepoint_metadata.sharepoint_path_rel)).includes(normalizeString("Sumário"))) {
+        retrievable_metadata.process_mean.push("Sumário");
+    }
+
+    const content: ContentType[] = await withTimeout(
+        retrieveSharepointContent(sharepoint_metadata),
+        60_000,
+        `retrieveSharepointContent for ${sharepoint_metadata.sharepoint_url}`
+    );
+
+    try {
+        const nlp_json: string | undefined = await withTimeout(
+            convertAndSaveNLP(content[0]),
+            120_000,
+            `convertAndSaveNLP for ${sharepoint_metadata.sharepoint_url}`
+        );
+        if (nlp_json) {
+            content.push({ data: Buffer.from(nlp_json, "utf-8"), extension: "json" });
+        }
+    } catch (err: unknown) {
+        console.warn(`NLP failed for ${sharepoint_metadata.sharepoint_url}, continuing without NLP:`, err instanceof Error ? err.message : err);
+    }
+
+    const jurisprudencia_document_original: PartialJurisprudenciaDocument = await createJurisprudenciaDocument(retrievable_metadata, content, date_area_section, sharepoint_metadata);
+
+    const file_path: string = generateFilePath(jurisprudencia_document_original);
+    const jurisprudencia_document: string = jurisprudencia_document_original.UUID || "";
+
+    const filesystem_document: FilesystemDocument = {
+        creation_date,
+        last_update_date,
+        jurisprudencia_document,
+        content,
+        file_path,
+        sharepoint_metadata
+    };
+
+    const complementaryResult = await checkAndMergeComplementary(jurisprudencia_document_original);
+
+    if (complementaryResult.type === 'skip') {
+        console.log(`Skipping ${sharepoint_metadata.sharepoint_url}: complete document already exists for this process/date/meio`);
+        return;
+    }
+
+    if (complementaryResult.type === 'merged') {
+        const mainContent = content.find(c => c.extension !== "json");
+        if (mainContent) {
+            writeContentToDocument(complementaryResult.existingDoc, mainContent, complementaryResult.isSumario);
+        }
+        addFileToUpdate(update, filesystem_document);
+        return;
+    }
+
+    let r: estypes.WriteResponseBase | undefined = undefined;
+    try {
+        r = await updateJurisDocument(jurisprudencia_document_original);
+    } catch (err: unknown) {
+        console.error("Couldn't save juris document");
+        writeFilesystemDocument(filesystem_document);
+        addFileToUpdate(update, filesystem_document);
+        return;
+    }
+
+    if (r?.result === "created") {
+        writeFilesystemDocument(filesystem_document);
+        addFileToUpdate(update, filesystem_document);
+    }
+}
+
+// After delta processing: scan each folder that appeared in the delta and process
+// any file not yet introduced, to catch files whose table arrived after them.
+async function scanFolderForMissingFiles(
+    drive_name: string,
+    drive_id: string,
+    parentFolderId: string,
+    retrievable_metadata_tables: Record<string, Retrievable_Metadata_Table>,
+    update: FilesystemUpdate
+): Promise<void> {
+    const tabelaRegex = /.*tabela.*\.pdf$/i;
+
+    let folderChildren: any;
+    try {
+        folderChildren = await withTimeout(
+            client.api(`/drives/${drive_id}/items/${parentFolderId}/children`).get(),
+            30_000,
+            `get children for folder ${parentFolderId}`
+        );
+    } catch (err) {
+        console.error(`scanFolder: failed to get children for folder ${parentFolderId}:`, err instanceof Error ? err.message : err);
+        return;
+    }
+
+    for (const item of folderChildren.value ?? []) {
+        if (!item.file) continue;
+        if (tabelaRegex.test((item.name ?? "").toLowerCase())) continue;
+
+        try {
+            const sharepoint_metadata = readSharepoint_Metadata(item, drive_name, drive_id);
+            const date_area_section = getDateAreaSection(sharepoint_metadata);
+
+            const folderKey = path.dirname(sharepoint_metadata.sharepoint_path_rel);
+            if (!(folderKey in retrievable_metadata_tables)) {
+                retrievable_metadata_tables[folderKey] = await withTimeout(
+                    retrieveSharepointTable(sharepoint_metadata),
+                    60_000,
+                    `retrieveSharepointTable for ${folderKey}`
+                );
+            }
+
+            const retrievable_metadata = getRetrievableMetadata(retrievable_metadata_tables[folderKey], sharepoint_metadata);
+            const isSumario = normalizeString(path.basename(sharepoint_metadata.sharepoint_path_rel)).includes(normalizeString("Sumário"));
+            const formattedDate = Intl.DateTimeFormat("pt-PT").format(date_area_section.file_date);
+
+            if (await isAlreadyIntroduced(retrievable_metadata.process_number, formattedDate, isSumario)) {
+                continue;
+            }
+
+            console.log(`scanFolder: introducing missing file ${sharepoint_metadata.sharepoint_url}`);
+            await processFileItem(item, drive_name, drive_id, retrievable_metadata_tables, update);
+        } catch (err: unknown) {
+            if (err instanceof Error) {
+                logDocumentProcessingError(update, `scanFolder: Error processing ${item?.name ?? "unknown"}: ${err.message}`);
+            }
+        }
+    }
+}
+
 async function updateDrive(drive_name: string, drive_id: string, lastUpdate: FilesystemUpdate): Promise<void> {
     console.log(drive_name);
+    let update: FilesystemUpdate = { updateSource: "STJ (Sharepoint)", date_start: new Date(), file_errors: [] };
+
     process.once("SIGINT", () => {
         terminateUpdate(update, `Update terminated by user.`, "STJ (Sharepoint)").then(() => process.exit(0));
     });
 
-    // update initialization
-    let update: FilesystemUpdate = { updateSource: "STJ (Sharepoint)", date_start: new Date(), file_errors: [] };
     let next = lastUpdate.next_link || lastUpdate.delta_link || `/sites/${encodeURIComponent(site_id)}/drives/${encodeURIComponent(drive_id)}/root/delta`;
     let i = 0;
 
+    // Shared table cache across all pages — avoids re-fetching the same table PDF
+    const retrievable_metadata_tables: Record<string, Retrievable_Metadata_Table> = {};
+    // Folders that appeared in the delta — scanned afterwards for missing files
+    const foldersToScan = new Set<string>();
+
     while (next) {
         const normalized = normalizeGraphUrlToPath(next);
-
-        // get page with updates
-        const page_of_documents = await client.api(normalized).get();
+        const page_of_documents = await withTimeout(
+            client.api(normalized).get(),
+            60_000,
+            `delta page ${normalized}`
+        );
 
         update.delta_link = page_of_documents["@odata.deltaLink"];
         update.next_link = page_of_documents["@odata.nextLink"];
-        const retrievable_metadata_tables: Record<string, Retrievable_Metadata_Table> = {};
 
-        for (const drive_item of page_of_documents.value) {
-            if (drive_item.deleted) {
-                continue;
-            }
-            if (drive_item.folder) {
-                continue;
-            }
-            if (!drive_item.file) {
-                continue;
+        for (const drive_item of page_of_documents.value ?? []) {
+            if (drive_item.deleted) continue;
+            if (drive_item.folder) continue;
+            if (!drive_item.file) continue;
+
+            // Track folder before try/catch so even tabela files mark the folder
+            if (drive_item.parentReference?.id) {
+                foldersToScan.add(drive_item.parentReference.id);
             }
 
+            i++;
             try {
-                // read sharepoint exclusive info
-                const sharepoint_metadata: Sharepoint_Metadata = readSharepoint_Metadata(drive_item, drive_name, drive_id);
-
-                // initialize creation and update dates for future updates
-                const creation_date: Date = new Date();
-                const last_update_date: Date = creation_date;
-                const date_area_section: Date_Area_Section = getDateAreaSection(sharepoint_metadata);
-
-                /* if (!sharepoint_metadata.extensions.includes("pdf") || !sharepoint_metadata.sharepoint_path_rel.toLowerCase().includes("secção") || !sharepoint_metadata.sharepoint_path_rel.toLowerCase().includes("2025")) {
-                    throw new Error("Tem Texto.");
-                } */
-
-                if (!(path.dirname(sharepoint_metadata.sharepoint_path_rel) in retrievable_metadata_tables)) {
-                    retrievable_metadata_tables[path.dirname(sharepoint_metadata.sharepoint_path_rel)] = await retrieveSharepointTable(sharepoint_metadata);
-                }
-
-                // retrieves actual metadata from sharepoint documents
-                const retrievable_metadata: Retrievable_Metadata = getRetrievableMetadata(retrievable_metadata_tables[path.dirname(sharepoint_metadata.sharepoint_path_rel)], sharepoint_metadata);
-                if (normalizeString(path.basename(sharepoint_metadata.sharepoint_path_rel)).includes(normalizeString("Sumário"))) {
-                    retrievable_metadata.process_mean.push("Sumário");
-                }
-                // retrieves actual decision content
-                const content: ContentType[] = await retrieveSharepointContent(sharepoint_metadata);
-
-                // identify entities
-                try {
-                    const nlp_json: string | undefined = await convertAndSaveNLP(content[0]);
-
-                    if (nlp_json) {
-                        content.push({ data: Buffer.from(nlp_json, "utf-8"), extension: "json" });
-                    }
-                } catch (err: unknown) {}
-
-                // creates jurisprudencia document for indexing later and to store metadata in a standard way
-                const jurisprudencia_document_original: PartialJurisprudenciaDocument = await createJurisprudenciaDocument(retrievable_metadata, content, date_area_section, sharepoint_metadata);
-
-                // if there is enough metadata associated with the document, then it is inserted into the filesystem
-                // otherwise it's just made a copy that is stored in the sharepoint copy, could be useful for backups idk
-                const file_path: string = generateFilePath(jurisprudencia_document_original);
-
-                const jurisprudencia_document: string = jurisprudencia_document_original.UUID || "";
-
-                const filesystem_document: FilesystemDocument = {
-                    creation_date,
-                    last_update_date,
-                    jurisprudencia_document,
-                    content,
-                    file_path,
-                    sharepoint_metadata
-                };
-
-                // Check if this doc is complementary to an existing one (sumário ↔ texto)
-                const complementaryResult = await checkAndMergeComplementary(jurisprudencia_document_original);
-
-                if (complementaryResult.type === 'skip') {
-                    console.log(`Skipping ${sharepoint_metadata.sharepoint_url}: complete document already exists for this process/date/meio`);
-                    continue;
-                }
-
-                if (complementaryResult.type === 'merged') {
-                    const mainContent = content.find(c => c.extension !== "json");
-                    if (mainContent) {
-                        writeContentToDocument(complementaryResult.existingDoc, mainContent, complementaryResult.isSumario);
-                    }
-                    addFileToUpdate(update, filesystem_document);
-                    continue;
-                }
-
-                let r: estypes.WriteResponseBase | undefined = undefined;
-
-                // write the document in the juris platform if it is available
-                try {
-                    r = await updateJurisDocument(jurisprudencia_document_original);
-                } catch (err: unknown) {
-                    console.error("Couldn't save juris document");
-                    writeFilesystemDocument(filesystem_document);
-                    addFileToUpdate(update, filesystem_document);
-                }
-
-                if (r?.result === "created") {
-                    // write the document to the system
-                    writeFilesystemDocument(filesystem_document);
-                    addFileToUpdate(update, filesystem_document);
-                }
+                await processFileItem(drive_item, drive_name, drive_id, retrievable_metadata_tables, update);
             } catch (err: unknown) {
                 if (err instanceof Error) {
-                    // this should log the exact issue with the file
-                    let file_name = (drive_item?.parentReference.path ?? "") + "/" + (drive_item?.name ?? "");
-                    logDocumentProcessingError(update, `Error processessing file ${file_name}, number ${i} of drive ${drive_name}: ` + err.message);
+                    const file_name = (drive_item?.parentReference?.path ?? "") + "/" + (drive_item?.name ?? "");
+                    logDocumentProcessingError(update, `Error processing file ${file_name} (#${i}) in drive ${drive_name}: ${err.message}`);
                 }
             }
         }
-        // this is just a counter of all files seen in pages
-        console.log("Files processed as seen: ", i);
+
+        console.log(`Files seen so far: ${i}`);
 
         if (update.delta_link) {
             update.next_link = undefined;
@@ -304,6 +401,12 @@ async function updateDrive(drive_name: string, drive_id: string, lastUpdate: Fil
         }
 
         throw new Error("Update page doesn't have next or delta page.");
+    }
+
+    // Post-delta folder scan: process any files in delta-touched folders that weren't introduced yet
+    console.log(`Scanning ${foldersToScan.size} folder(s) for missing files...`);
+    for (const parentFolderId of foldersToScan) {
+        await scanFolderForMissingFiles(drive_name, drive_id, parentFolderId, retrievable_metadata_tables, update);
     }
 
     terminateUpdate(update, `Drive ${drive_name} updated.`, "STJ (Sharepoint)");
