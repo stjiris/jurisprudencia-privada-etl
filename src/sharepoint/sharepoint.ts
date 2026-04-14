@@ -1,9 +1,10 @@
 import { Client } from "@microsoft/microsoft-graph-client";
-import { addFileToUpdate, clearReintroductionMarker, ContentType, Date_Area_Section, FilesystemDocument, FilesystemUpdate, generateFilePath, isSupportedExtension, loadLastFilesystemUpdate, loadPendingReintroductions, logDocumentProcessingError, Retrievable_Metadata, Sharepoint_Metadata, Supported_Content_Extensions, SupportedUpdateSources, writeContentToDocument, writeFilesystemDocument, writeFilesystemUpdate } from "@stjiris/filesystem-lib";
+import { addFileToUpdate, clearReintroductionMarker, ContentType, Date_Area_Section, FilesystemDocument, FilesystemUpdate, generateFilePath, isSupportedExtension, loadCachedNlpFromDetalhes, loadLastFilesystemUpdate, loadPendingReintroductions, logDocumentProcessingError, Retrievable_Metadata, Sharepoint_Metadata, Supported_Content_Extensions, SupportedUpdateSources, writeContentToDocument, writeFilesystemDocument, writeFilesystemUpdate } from "@stjiris/filesystem-lib";
 import { ClientSecretCredential } from "@azure/identity";
 import { TokenCredentialAuthenticationProvider } from "@microsoft/microsoft-graph-client/authProviders/azureTokenCredentials/index.js";
 import { calculateHASH, JurisprudenciaDocument, JurisprudenciaVersion, PartialJurisprudenciaDocument } from "@stjiris/jurisprudencia-document";
 import { updateJurisDocument, client as esClient } from "../juris.js";
+import crypto from "crypto";
 import dotenv from "dotenv";
 import path from "path";
 import { spawn } from "child_process";
@@ -261,12 +262,21 @@ async function processFileItem(
         `retrieveSharepointContent for ${sharepoint_metadata.sharepoint_url}`
     );
 
+    let contentHash: string | undefined;
     try {
-        const nlp_json: string | undefined = await withTimeout(
-            convertAndSaveNLP(content[0]),
-            120_000,
-            `convertAndSaveNLP for ${sharepoint_metadata.sharepoint_url}`
-        );
+        contentHash = crypto.createHash("sha256").update(content[0].data).digest("hex");
+        const cached = loadCachedNlpFromDetalhes(sharepoint_metadata.sharepoint_path_rel, contentHash);
+        let nlp_json: string | undefined;
+        if (cached) {
+            console.log(`NLP cache hit for ${sharepoint_metadata.sharepoint_url}`);
+            nlp_json = cached;
+        } else {
+            nlp_json = await withTimeout(
+                convertAndSaveNLP(content[0]),
+                120_000,
+                `convertAndSaveNLP for ${sharepoint_metadata.sharepoint_url}`
+            );
+        }
         if (nlp_json) {
             content.push({ data: Buffer.from(nlp_json, "utf-8"), extension: "json" });
         }
@@ -285,7 +295,8 @@ async function processFileItem(
         jurisprudencia_document,
         content,
         file_path,
-        sharepoint_metadata
+        sharepoint_metadata,
+        contentHash,
     };
 
     const complementaryResult = await checkAndMergeComplementary(jurisprudencia_document_original);
