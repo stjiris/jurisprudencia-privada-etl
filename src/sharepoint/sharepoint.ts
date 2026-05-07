@@ -282,7 +282,7 @@ async function processFileItem(
             content.push({ data: Buffer.from(nlp_json, "utf-8"), extension: "json" });
         }
     } catch (err: unknown) {
-        console.warn(`NLP failed for ${sharepoint_metadata.sharepoint_url}, continuing without NLP:`, err instanceof Error ? err.message : err);
+        console.warn(`NLP/conversion failed for ${sharepoint_metadata.sharepoint_url}, continuing without:`, err instanceof Error ? err.message : err);
     }
 
     const jurisprudencia_document_original: PartialJurisprudenciaDocument = await createJurisprudenciaDocument(retrievable_metadata, content, date_area_section, sharepoint_metadata);
@@ -506,7 +506,7 @@ async function retrieveSharepointTable(sharepoint_metadata: Sharepoint_Metadata)
     const matchingFile = response.value.find((item: any) => item.file && tabelaRegex.test(item.name.toLowerCase()));
 
     if (!matchingFile) {
-        throw new Error(`Nenhuma *tabela*.pdf encontrada associada ao ficheiro  ${sharepoint_metadata.sharepoint_path_rel}`);
+        return {};
     }
 
     const webStream = await client.api(`/drives/${sharepoint_metadata.drive_id}/items/${matchingFile.id}/content`).get();
@@ -586,7 +586,8 @@ function getRetrievableMetadata(retrievable_metadata_table: Retrievable_Metadata
     const original_file_name: string = path.basename(sharepoint_metadata.sharepoint_path_rel).replace(/-/g, "/");
     const matchedKey = Object.keys(retrievable_metadata_table).find((k) => original_file_name.includes(k.replace(/-/g, "/")));
     if (!matchedKey) {
-        throw new Error("Metadata não encontrada dentro da tabela correspondente.");
+        const file_name = path.basename(sharepoint_metadata.sharepoint_path_rel, path.extname(sharepoint_metadata.sharepoint_path_rel));
+        return { process_number: file_name, judge: "", process_mean: [], decision: "" };
     }
     return retrievable_metadata_table[matchedKey];
 }
